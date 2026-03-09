@@ -1,0 +1,194 @@
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Student Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="student-dashboard.css"/>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="logo">
+    <span>🏫 Step by Step</span>
+    <p>Student Portal</p>
+  </div>
+  <nav class="nav">
+    <button class="nav-item active" onclick="showPage('overview', this)">
+      <span class="icon">🏠</span> Overview
+    </button>
+    <button class="nav-item" onclick="showPage('work', this)">
+      <span class="icon">📋</span> My Work
+    </button>
+    <button class="nav-item" onclick="showPage('grades', this)">
+      <span class="icon">📊</span> Grades
+    </button>
+    <button class="nav-item" onclick="showPage('timetable', this)">
+      <span class="icon">🗓️</span> Timetable
+    </button>
+    <button class="nav-item" onclick="showPage('fees', this)">
+      <span class="icon">💰</span> Fees
+    </button>
+    <button class="nav-item" onclick="showPage('announcements', this)">
+      <span class="icon">📣</span> Announcements
+    </button>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="student-info">
+      <div class="s-name" id="sidebarName">Loading...</div>
+      <div class="s-id" id="sidebarId">—</div>
+    </div>
+    <button class="btn-logout" onclick="logout()">↩ Log Out</button>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+
+  <!-- OVERVIEW -->
+  <div id="page-overview" class="page active">
+    <div class="page-header">
+      <h1>Welcome back, <span id="welcomeName">Student</span> 👋</h1>
+      <p>Here's what's happening today</p>
+    </div>
+    <div class="grid-3">
+      <div class="stat-card">
+        <div class="stat-icon">📋</div>
+        <div>
+          <div class="stat-val" id="statPending">—</div>
+          <div class="stat-label">Pending Work</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">✅</div>
+        <div>
+          <div class="stat-val" id="statSubmitted">—</div>
+          <div class="stat-label">Submitted</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">📣</div>
+        <div>
+          <div class="stat-val" id="statAnnouncements">—</div>
+          <div class="stat-label">Announcements</div>
+        </div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>📋 Recent Work</h3>
+        <div id="overviewWork">
+          <div class="loading"><div class="spinner"></div> Loading...</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>📣 Latest Announcements</h3>
+        <div id="overviewAnnouncements">
+          <div class="loading"><div class="spinner"></div> Loading...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MY WORK -->
+  <div id="page-work" class="page">
+    <div class="page-header">
+      <h1>My Work</h1>
+      <p>View and submit your assigned work</p>
+    </div>
+    <div class="filter-bar">
+      <button class="btn btn-outline btn-sm filter-btn active" onclick="filterWork('all', this)">All</button>
+      <button class="btn btn-outline btn-sm filter-btn" onclick="filterWork('pending', this)">Pending</button>
+      <button class="btn btn-outline btn-sm filter-btn" onclick="filterWork('submitted', this)">Submitted</button>
+      <button class="btn btn-outline btn-sm filter-btn" onclick="filterWork('overdue', this)">Overdue</button>
+    </div>
+    <div class="work-list" id="workList">
+      <div class="loading"><div class="spinner"></div> Loading...</div>
+    </div>
+  </div>
+
+  <!-- GRADES -->
+  <div id="page-grades" class="page">
+    <div class="page-header">
+      <h1>My Grades</h1>
+      <p>Your academic performance</p>
+    </div>
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Subject</th>
+              <th>Grade</th>
+              <th>Score</th>
+              <th>Term</th>
+              <th>Progress</th>
+            </tr>
+          </thead>
+          <tbody id="gradesBody">
+            <tr><td colspan="5">
+              <div class="loading"><div class="spinner"></div> Loading...</div>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- TIMETABLE -->
+  <div id="page-timetable" class="page">
+    <div class="page-header">
+      <h1>My Timetable</h1>
+      <p>Your weekly class schedule</p>
+    </div>
+    <div class="card">
+      <div class="timetable-grid" id="timetableGrid">
+        <div class="loading" style="grid-column:1/-1">
+          <div class="spinner"></div> Loading...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FEES -->
+  <div id="page-fees" class="page">
+    <div class="page-header">
+      <h1>My Fees</h1>
+      <p>Your fee status and payment history</p>
+    </div>
+    <div id="feesContainer">
+      <div class="loading"><div class="spinner"></div> Loading...</div>
+    </div>
+  </div>
+
+  <!-- ANNOUNCEMENTS -->
+  <div id="page-announcements" class="page">
+    <div class="page-header">
+      <h1>Announcements</h1>
+      <p>School notices and updates</p>
+    </div>
+    <div id="announcementsList">
+      <div class="loading"><div class="spinner"></div> Loading...</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- SUBMIT MODAL -->
+<div class="modal-overlay" id="submitModal">
+  <div class="modal">
+    <h3>Mark as Submitted</h3>
+    <p>Confirm that you have completed and handed in this work.</p>
+    <div id="submitWorkTitle"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-success" onclick="confirmSubmit()">✅ Confirm Submitted</button>
+    </div>
+  </div>
+</div>
+
+<script src="student-dashboard.js"></script>
+</body>
+</html>

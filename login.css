@@ -1,0 +1,15 @@
+:root{--primary:#667eea;--bg:#f6f8fb;--card:#fff;--border:#e6eaf0}
+*{box-sizing:border-box}
+body{font-family:Segoe UI,Arial;background:var(--bg);margin:0;color:#233}
+.login-container{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:2rem}
+.card{width:420px;background:var(--card);padding:2rem;border-radius:12px;box-shadow:0 10px 30px rgba(20,30,60,0.08);text-align:left}
+.logo{width:64px;height:64px;object-fit:contain;margin-bottom:0.5rem}
+h1{margin:0 0 1rem;font-size:1.25rem}
+.form-row{margin-bottom:.75rem}
+.form-row label{display:block;font-weight:600;margin-bottom:.25rem}
+.form-row input, .form-row select{width:100%;padding:.6rem;border-radius:8px;border:1px solid var(--border)}
+.actions{display:flex;gap:.5rem;margin-top:.5rem}
+.btn{padding:.6rem .9rem;border-radius:8px;border:1px solid transparent;background:#eef;width:auto;cursor:pointer}
+.btn.primary{background:linear-gradient(135deg,var(--primary) 0%,#764ba2 100%);color:#fff}
+hr{margin:1.25rem 0;border:none;border-top:1px solid var(--border)}
+@media(max-width:480px){.card{width:100%}}

@@ -1,0 +1,11 @@
+school-backend/uploads/
+*.mp4
+*.rar
+school-backend/uploads/
+*.mp4
+*.jpg
+*.jpeg
+school-backend/school.db
+school-backend/backups/
+node_modules/
+node_modules/

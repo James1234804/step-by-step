@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Login — Shallom High</title>
+  <link rel="stylesheet" href="login.css">
+</head>
+<body>
+  <main class="login-container">
+    <div class="card">
+      <img src="shallom-logo.jpeg" alt="logo" class="logo">
+      <h1>Step by Step — Sign in</h1>
+
+      <div class="form-row">
+        <label>Username</label>
+        <input id="loginUser" type="text" autocomplete="username">
+      </div>
+      <div class="form-row">
+        <label>Password</label>
+        <input id="loginPass" type="password" autocomplete="current-password">
+      </div>
+      <div class="actions">
+        <button id="btnLogin" class="btn primary">Login</button>
+        <button id="btnTeacherLogin" class="btn">Login as Teacher</button>
+       <button id="btnStudentLogin" class="btn">🎓 Login as Student</button>
+      </div>
+ <!-- Student Login Modal -->
+  <div id="studentLoginModal" style="display:none; position:fixed; inset:0;
+    background:rgba(0,0,0,0.6); z-index:999; align-items:center; justify-content:center;">
+    <div style="background:#fff; border-radius:14px; padding:28px 24px;
+      width:340px; max-width:92vw; box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+      <h3 style="margin-bottom:6px; font-size:18px;">🎓 Student Login</h3>
+      <p style="font-size:13px; color:#888; margin-bottom:18px;">
+        Enter your Student ID and password provided by your teacher
+      </p>
+      <input id="inputStudentId" type="text" placeholder="Student ID (e.g. STU001)"
+        style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px;
+        font-size:14px; margin-bottom:10px; box-sizing:border-box;" />
+      <input id="inputStudentPass" type="password" placeholder="Password"
+        style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px;
+        font-size:14px; margin-bottom:20px; box-sizing:border-box;" />
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <button id="btnCancelStudent" class="btn">Cancel</button>
+        <button id="btnConfirmStudent" class="btn primary">Login →</button>
+      </div>
+    </div>
+  </div>
+
+      </div>
+    </div>
+  </main>
+  <script src="login.js"></script>
+</body>
+</html>
