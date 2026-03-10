@@ -1,0 +1,1 @@
+{"build":{"builder":"NIXPACKS"},"deploy":{"startCommand":"node school-backend/server.js"}}
