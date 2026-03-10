@@ -1,0 +1,673 @@
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shallom High School - Management System</title>
+    <link rel="stylesheet" href="school.css">
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-logo">
+                <img src="shallom-logo.jpeg" alt="Shallom High School Logo" class="logo-img">
+                <span class="school-name">Step by Step Academy</span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="#dashboard" class="nav-link active" data-section="dashboard">Dashboard</a></li>
+                <li><a href="#students" class="nav-link" data-section="students">Students</a></li>
+                <li><a href="#classes" class="nav-link" data-section="classes">Classes</a></li>
+                <li><a href="#timetable" class="nav-link" data-section="timetable">Timetable</a></li>
+                <li><a href="#fees" class="nav-link" data-section="fees">Fees</a></li>
+                <li><a href="#teachers" class="nav-link" data-section="teachers">Teachers</a></li>
+            </ul>
+            <div class="user-profile">
+                <div class="notification-badge-container" style="position: relative; margin-right: 1rem;">
+                    <button id="notificationBell" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; position: relative;" title="Notifications">
+                        🔔
+                        <span id="notificationCount" class="notification-count-badge" style="position: absolute; top: -5px; right: -8px; background: #f5576c; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: bold; display: none;">0</span>
+                    </button>
+                </div>
+                <span class="username" id="navUsername">Admin</span>
+                <button id="btnLogout" class="btn logout-btn" title="Logout">Logout</button>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-menu">
+                <div class="menu-section">
+                    <h3 class="section-title">Main</h3>
+                    <a href="#dashboard" class="menu-item active" data-menu="dashboard">
+                        <span class="icon">📊</span>
+                        <span class="label">Dashboard</span>
+                    </a>
+                    <a href="#students" class="menu-item" data-menu="students">
+                        <span class="icon">👥</span>
+                        <span class="label">Students</span>
+                    </a>
+                    <a href="#teachers" class="menu-item" data-menu="teachers">
+                        <span class="icon">👨‍🏫</span>
+                        <span class="label">Teachers</span>
+                    </a>
+                </div>
+                <div class="menu-section">
+                    <h3 class="section-title">Academic</h3>
+                    <a href="#classes" class="menu-item" data-menu="classes">
+                        <span class="icon">📚</span>
+                        <span class="label">Classes</span>
+                    </a>
+                    <a href="#timetable" class="menu-item" data-menu="timetable">
+                        <span class="icon">🗓️</span>
+                        <span class="label">Timetable</span>
+                    </a>
+                    <a href="#fees" class="menu-item" data-menu="fees">
+                        <span class="icon">💰</span>
+                        <span class="label">Fees</span>
+                    </a>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+
+            <!-- ===== DASHBOARD SECTION ===== -->
+            <section id="dashboard-section" class="content-section active">
+                <div class="section-header">
+                    <h1>Dashboard</h1>
+                    <p class="subtitle">Welcome back! Here's your school overview</p>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">👥</div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Total Students</h3>
+                            <p id="totalStudentsStat" class="stat-value">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">👨‍🏫</div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Total Teachers</h3>
+                            <p id="totalTeachersStat" class="stat-value">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">📚</div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Classes</h3>
+                            <p id="totalClassesStat" class="stat-value">0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>📬 Live Attendance Notifications</h2>
+                            <button id="clearNotificationsBtn" class="btn" style="padding: 4px 12px; font-size: 0.9em;">Clear All</button>
+                        </div>
+                        <div id="notificationsContainer" class="notifications-list" style="max-height: 400px; overflow-y: auto;">
+                            <p style="color: #999; text-align: center; padding: 2rem;">No attendance notifications yet</p>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Recent Activities</h2>
+                            <button id="clearActivitiesBtn" class="btn" style="padding: 4px 12px; font-size: 0.9em;">Clear All</button>
+                        </div>
+                        <div id="recentActivitiesList" class="activity-list"></div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Quick Actions</h2>
+                        </div>
+                        <div class="action-buttons">
+                            <button class="btn btn-primary" onclick="navigateTo('students')">+ Add Student</button>
+                            <button class="btn btn-secondary" onclick="navigateTo('classes')">+ New Class</button>
+                            <button class="btn btn-secondary" onclick="openUserModal()">+ Add Guest</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===== TIMETABLE SECTION ===== -->
+            <section id="timetable-section" class="content-section">
+                <div class="section-header">
+                    <h1>Timetable Management</h1>
+                    <button class="btn btn-primary" onclick="showAddTimetableEntry()">+ Add Timetable Entry</button>
+                </div>
+
+                <div class="filters">
+                    <select id="timetableClassSelect" class="filter-select" onchange="renderTimetableForClass(this.value)">
+                        <option value="">Select Class</option>
+                    </select>
+                    <button class="btn btn-secondary" onclick="populateTimetableClassSelect()">Refresh Classes</button>
+                </div>
+
+                <div class="card">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Day</th>
+                                <th>Start</th>
+                                <th>End</th>
+                                <th>Subject</th>
+                                <th>Teacher</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="timetableTableBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ===== GRADES SECTION ===== -->
+            <section id="grades-section" class="content-section">
+                <div class="section-header">
+                    <h1>Grades Management</h1>
+                    <button class="btn btn-primary" onclick="showGradeForm()">+ Add Grade</button>
+                </div>
+                <div class="card">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Student ID</th>
+                                <th>Class</th>
+                                <th>Subject</th>
+                                <th>Exam</th>
+                                <th>Grade</th>
+                                <th>Teacher</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mainGradesTableBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ===== STUDENTS SECTION ===== -->
+            <section id="students-section" class="content-section">
+                <div class="section-header">
+                    <h1>Students Management</h1>
+                    <button class="btn btn-primary" onclick="showAddStudentForm()">+ Add New Student</button>
+                </div>
+
+                <div class="filters">
+                    <input type="text" id="studentSearch" placeholder="Search students..." class="search-input">
+                    <select id="classFilter" class="filter-select">
+                        <option value="">All Classes</option>
+                    </select>
+                </div>
+
+                <div class="card">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Class</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="studentsTableBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ===== CLASSES SECTION ===== -->
+            <section id="classes-section" class="content-section">
+                <div class="section-header">
+                    <h1>Classes Management</h1>
+                    <div style="display:flex; gap:0.75rem; align-items:center;">
+                        <button id="addClassBtn" class="btn btn-primary" onclick="openClassModal()">+ Add New Class</button>
+                        <select id="classViewModeSelect" class="filter-select" title="Classes view mode" onchange="renderClasses()">
+                            <option value="dropdown">Compact dropdown</option>
+                            <option value="cards">Cards / Accordion</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filters" style="margin: 1rem 0;">
+                    <select id="formLevelFilter" class="filter-select" onchange="filterClassesByFormLevel(this.value)">
+                        <option value="">All Forms</option>
+                        <option value="1">Form 1</option>
+                        <option value="2">Form 2</option>
+                        <option value="3">Form 3</option>
+                        <option value="4">Form 4</option>
+                        <option value="5">Form 5</option>
+                        <option value="6">Form 6</option>
+                    </select>
+                </div>
+                <div class="classes-grid" id="classesContainer"></div>
+
+                <!-- Class Modal -->
+                <div id="classModal" class="modal" aria-hidden="true">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="modalTitle">Create Class</h3>
+                            <button class="modal-close" onclick="closeClassModal()">✕</button>
+                        </div>
+                        <form id="classForm">
+                            <div class="form-row">
+                                <label>Form Level</label>
+                                <select id="classFormLevelInput" required>
+                                    <option value="">Select Form</option>
+                                    <option value="1">Form 1</option>
+                                    <option value="2">Form 2</option>
+                                    <option value="3">Form 3</option>
+                                    <option value="4">Form 4</option>
+                                    <option value="5">Form 5</option>
+                                    <option value="6">Form 6</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label>Class Name</label>
+                                <input type="text" id="classNameInput" required placeholder="e.g., A (will become Form X-A)">
+                            </div>
+                            <div class="form-row">
+                                <label>Class Teacher</label>
+                                <input type="text" id="classTeacherInput" placeholder="Teacher name">
+                            </div>
+                            <div class="form-row">
+                                <label>Room</label>
+                                <input type="text" id="classRoomInput" placeholder="Room number">
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Save Class</button>
+                                <button type="button" class="btn btn-secondary" onclick="closeClassModal()">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Class Details Modal -->
+                <div id="classDetailsModal" class="modal" aria-hidden="true">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="classDetailsTitle">Class Details</h3>
+                            <button class="modal-close" onclick="closeClassDetailsModal()">✕</button>
+                        </div>
+                        <div class="card">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Fee Status</th>
+                                        <th>Midterm</th>
+                                        <th>Final</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="classStudentsTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Student Modal -->
+            <div id="studentModal" class="modal" aria-hidden="true">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 id="studentModalTitle">Add Student</h3>
+                        <button class="modal-close" onclick="closeStudentModal()">✕</button>
+                    </div>
+                    <form id="studentForm">
+                        <div class="form-row">
+                            <label>Name</label>
+                            <input type="text" id="studentNameInput" required placeholder="Student full name">
+                        </div>
+                        <div class="form-row">
+                            <label>Class</label>
+                            <select id="studentClassSelect" required>
+                                <option value="">Select Class</option>
+                            </select>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Save Student</button>
+                            <button type="button" class="btn btn-secondary" onclick="closeStudentModal()">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Student Profile Modal -->
+            <div id="studentProfileModal" class="modal" aria-hidden="true">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 id="studentProfileTitle">Student Profile</h3>
+                        <button class="modal-close" onclick="closeStudentProfileModal()">✕</button>
+                    </div>
+                    <div class="profile-tabs" style="margin-bottom:0.75rem;">
+                        <button id="profileTab-overview" class="profile-tab active" onclick="showStudentProfileTab('overview')">Overview</button>
+                        <button id="profileTab-attendance" class="profile-tab" onclick="showStudentProfileTab('attendance')">Attendance</button>
+                        <button id="profileTab-contacts" class="profile-tab" onclick="showStudentProfileTab('contacts')">Parent Contacts</button>
+                        <button id="profileTab-fees" class="profile-tab" onclick="showStudentProfileTab('fees')">Fees</button>
+                    </div>
+                    <div class="profile-panel" id="profileOverviewPanel"></div>
+                    <div class="profile-panel" id="profileAttendancePanel" style="display:none;"></div>
+                    <div class="profile-panel" id="profileContactsPanel" style="display:none;"></div>
+                    <div class="profile-panel" id="profileFeesPanel" style="display:none;"></div>
+                </div>
+            </div>
+
+            <!-- User (Guest) Modal -->
+            <div id="userModal" class="modal" aria-hidden="true">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 id="userModalTitle">Create Guest User</h3>
+                        <button class="modal-close" onclick="closeUserModal()">✕</button>
+                    </div>
+                    <form id="userForm">
+                        <div class="form-row">
+                            <label>Name</label>
+                            <input type="text" id="guestName" required placeholder="Guest full name">
+                        </div>
+                        <div class="form-row">
+                            <label>Username</label>
+                            <input type="text" id="guestUsername" required placeholder="username">
+                        </div>
+                        <div class="form-row">
+                            <label>Password</label>
+                            <input type="password" id="guestPassword" required placeholder="password">
+                        </div>
+                        <div class="form-row">
+                            <label>Role</label>
+                            <select id="guestRole">
+                                <option value="guest">Guest</option>
+                                <option value="teacher">Teacher</option>
+                                <option value="headmaster">Headmaster</option>
+                            </select>
+                        </div>
+                        <div class="form-row" id="guestClassRow" style="display: none;">
+                            <label>Class</label>
+                            <select id="guestClassSelect">
+                                <option value="">Select Class</option>
+                            </select>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Create Guest</button>
+                            <button type="button" class="btn btn-secondary" onclick="closeUserModal()">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- ===== TEACHERS SECTION ===== -->
+            <section id="teachers-section" class="content-section">
+                <div class="section-header">
+                    <h1>Teachers Management</h1>
+                    <button class="btn btn-primary" onclick="showAddTeacherForm()">+ Add Teacher</button>
+                </div>
+
+                <div class="filters">
+                    <input type="text" id="teacherSearch" placeholder="Search teachers..." class="search-input">
+                    <select id="departmentFilter" class="filter-select">
+                        <option value="">All Departments</option>
+                        <option value="Mathematics">Mathematics</option>
+                        <option value="Science">Science</option>
+                        <option value="English">English</option>
+                        <option value="History">History</option>
+                    </select>
+                </div>
+
+                <div class="card">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Department</th>
+                                <th>Email</th>
+                                <th>Phone</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="teachersTableBody">
+                            <tr>
+                                <td>T001</td>
+                                <td>Mr. Rahman</td>
+                                <td>Mathematics</td>
+                                <td>rahman@school.com</td>
+                                <td>+880-1234-567890</td>
+                                <td><span class="status-badge status-active">Active</span></td>
+                                <td>
+                                    <button class="btn-small btn-info">View</button>
+                                    <button class="btn-small btn-warning">Edit</button>
+                                    <button class="btn-small btn-danger">Delete</button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>T002</td>
+                                <td>Ms. Fatima</td>
+                                <td>English</td>
+                                <td>fatima@school.com</td>
+                                <td>+880-1234-567891</td>
+                                <td><span class="status-badge status-active">Active</span></td>
+                                <td>
+                                    <button class="btn-small btn-info">View</button>
+                                    <button class="btn-small btn-warning">Edit</button>
+                                    <button class="btn-small btn-danger">Delete</button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>T003</td>
+                                <td>Mr. Ahmed</td>
+                                <td>Science</td>
+                                <td>ahmed@school.com</td>
+                                <td>+880-1234-567892</td>
+                                <td><span class="status-badge status-active">Active</span></td>
+                                <td>
+                                    <button class="btn-small btn-info">View</button>
+                                    <button class="btn-small btn-warning">Edit</button>
+                                    <button class="btn-small btn-danger">Delete</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ===== FEES SECTION ===== -->
+            <section id="fees-section" class="content-section">
+                <div class="section-header">
+                    <h1>School Fees Management</h1>
+                    <button class="btn btn-primary" onclick="showMarkFeeForm()">+ Mark Fee Paid</button>
+                </div>
+
+                <!-- Info box -->
+                <div style="background: #e8f5e9; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; border-left: 4px solid #43e97b;">
+                    <p><strong>💡 How it works:</strong> Set the total fees per student, then record payments as they come in. The system tracks each payment separately so you have a full history.</p>
+                </div>
+
+                <!-- Set Total Fees -->
+                <div class="card" style="margin-bottom: 1.5rem; padding: 1.2rem;">
+                    <h3 style="margin: 0 0 0.75rem 0;">💰 Set Total Fees Per Student</h3>
+                    <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                        <input type="number" id="totalFeesInput" placeholder="e.g. 700" style="padding: 8px 12px; border: 1.5px solid #ddd; border-radius: 8px; width: 180px; font-size: 1rem;">
+                        <button class="btn btn-primary" onclick="saveTotalFees()">Save</button>
+                        <span id="currentTotalFees" style="color: #555; font-weight: 600; font-size: 1rem;"></span>
+                    </div>
+                </div>
+
+                <!-- Fee Summary Cards -->
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
+
+                    <div style="flex: 1; min-width: 160px; background: #f0fff4; padding: 1.2rem; border-radius: 12px; text-align: center; box-shadow: 0 1px 6px rgba(0,0,0,0.07);">
+                        <div style="font-size: 0.8rem; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Fees Collected</div>
+                        <div id="totalFeesCollected" style="font-size: 2rem; font-weight: 700; color: #43e97b;">$0</div>
+                    </div>
+
+                    <div style="flex: 1; min-width: 160px; background: #fff8f0; padding: 1.2rem; border-radius: 12px; text-align: center; box-shadow: 0 1px 6px rgba(0,0,0,0.07);">
+                        <div style="font-size: 0.8rem; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Outstanding</div>
+                        <div id="totalFeesPending" style="font-size: 2rem; font-weight: 700; color: #f5576c;">$0</div>
+                    </div>
+
+                    <div style="flex: 1; min-width: 160px; background: #f0f4ff; padding: 1.2rem; border-radius: 12px; text-align: center; box-shadow: 0 1px 6px rgba(0,0,0,0.07);">
+                        <div style="font-size: 0.8rem; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Collection Rate</div>
+                        <div id="feeCollectionRate" style="font-size: 2rem; font-weight: 700; color: #667eea;">0%</div>
+                        <div style="font-size: 0.75rem; color: #999; margin-top: 2px;">max 100%</div>
+                    </div>
+
+                    <div style="flex: 1; min-width: 160px; background: #fafafa; padding: 1.2rem; border-radius: 12px; text-align: center; box-shadow: 0 1px 6px rgba(0,0,0,0.07);">
+                        <div style="font-size: 0.8rem; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Fully Paid</div>
+                        <div id="fullyPaidCount" style="font-size: 1.1rem; font-weight: 700; color: #333; margin-top: 0.5rem;">0 / 0 students</div>
+                    </div>
+
+                </div>
+
+                <!-- Collection Progress Bar -->
+                <div style="margin-bottom: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-size: 0.9rem; font-weight: 600; color: #555;">Fee Collection Progress</span>
+                        <span id="feeCollectionRateBar" style="font-size: 0.9rem; font-weight: 700; color: #667eea;">0%</span>
+                    </div>
+                    <div style="background: #e9ecef; border-radius: 20px; height: 14px; overflow: hidden;">
+                        <div id="feeCollectionBar" style="height: 100%; width: 0%; background: #f5576c; border-radius: 20px; transition: width 0.8s ease;"></div>
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div class="filters">
+                    <input type="text" id="feeSearch" placeholder="Search by student name..." class="search-input">
+                    <select id="feeStatusFilter" class="filter-select">
+                        <option value="">All Status</option>
+                        <option value="paid">Paid</option>
+                        <option value="partial">Partial</option>
+                        <option value="pending">Pending</option>
+                    </select>
+                    <select id="feeClassFilter" class="filter-select">
+                        <option value="">All Classes</option>
+                    </select>
+                    <select id="currencySelect" class="filter-select" onchange="changeCurrency(this.value); loadFeesFromStorage(); updateFeeSummary();">
+                        <option value="USD">USD ($)</option>
+                        <option value="ZWL">ZWL (Z$) - Zimbabwe</option>
+                    </select>
+                </div>
+
+                <!-- Class Fee Summary (shown when a class is filtered) -->
+                <div id="feeClassSummary" class="card" style="margin: 1rem 0; display: none;">
+                    <div class="card-header"><h3>Class Fee Summary</h3></div>
+                    <div class="card-body" id="feeClassSummaryBody">Select a class to view paid/pending students.</div>
+                </div>
+
+                <!-- Fees Table -->
+                <div class="card">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Student Name</th>
+                                <th>Class</th>
+                                <th>Paid / Total</th>
+                                <th>Status</th>
+                                <th>Balance</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="feesTableBody"></tbody>
+                    </table>
+                </div>
+
+            </section>
+
+        </main>
+    </div>
+
+    <!-- ===== PAYMENT MODAL ===== -->
+    <div id="paymentModal" class="modal" aria-hidden="true">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>+ Add Payment</h3>
+                <button class="modal-close" onclick="closePaymentModal()">✕</button>
+            </div>
+
+            <!-- Student Info -->
+            <div style="background: #f0f4ff; border-radius: 10px; padding: 1rem; margin-bottom: 1.2rem;">
+                <div style="font-size: 1.1rem; font-weight: 700; color: #1e293b; margin-bottom: 4px;" id="paymentModalStudentName">—</div>
+                <div style="font-size: 0.9rem; color: #64748b;" id="paymentModalClass">—</div>
+            </div>
+
+            <!-- Balance Summary -->
+            <div style="display: flex; gap: 0.75rem; margin-bottom: 1.2rem; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 100px; background: #f8fafc; border-radius: 8px; padding: 0.75rem; text-align: center;">
+                    <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 2px;">Total Due</div>
+                    <div id="paymentModalTotalDue" style="font-size: 1.3rem; font-weight: 700; color: #334155;">$0</div>
+                </div>
+                <div style="flex: 1; min-width: 100px; background: #f0fff4; border-radius: 8px; padding: 0.75rem; text-align: center;">
+                    <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 2px;">Paid So Far</div>
+                    <div id="paymentModalTotalPaid" style="font-size: 1.3rem; font-weight: 700; color: #43e97b;">$0</div>
+                </div>
+                <div style="flex: 1; min-width: 100px; background: #fff8f0; border-radius: 8px; padding: 0.75rem; text-align: center;">
+                    <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 2px;">Balance</div>
+                    <div id="paymentModalBalance" style="font-size: 1.3rem; font-weight: 700; color: #f5576c;">$0</div>
+                </div>
+            </div>
+
+            <!-- Payment Form -->
+            <div class="form-row">
+                <label style="font-weight: 600; font-size: 0.9rem; color: #475569;">Payment Amount ($)</label>
+                <input type="number" id="paymentModalAmount" min="1" placeholder="Enter amount"
+                    style="width: 100%; padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 8px; font-size: 1rem; box-sizing: border-box; margin-top: 4px;">
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; margin-top: 0.75rem;">
+                <div style="flex: 1;">
+                    <label style="font-weight: 600; font-size: 0.9rem; color: #475569;">Term</label>
+                    <select id="paymentModalTerm" style="width: 100%; padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 8px; font-size: 0.95rem; margin-top: 4px;">
+                        <option value="">Select Term</option>
+                        <option value="Term 1">Term 1</option>
+                        <option value="Term 2">Term 2</option>
+                        <option value="Term 3">Term 3</option>
+                    </select>
+                </div>
+                <div style="flex: 1;">
+                    <label style="font-weight: 600; font-size: 0.9rem; color: #475569;">Year</label>
+                    <input type="number" id="paymentModalYear" placeholder="e.g. 2026"
+                        style="width: 100%; padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 8px; font-size: 0.95rem; box-sizing: border-box; margin-top: 4px;">
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div style="display: flex; gap: 0.75rem; margin-top: 1.2rem;">
+                <button class="btn btn-primary" onclick="submitPaymentModal()" style="flex: 1; padding: 11px;">
+                    ✅ Record Payment
+                </button>
+                <button class="btn btn-secondary" onclick="closePaymentModal()" style="padding: 11px 18px;">
+                    Cancel
+                </button>
+            </div>
+
+            <!-- Payment History inside modal -->
+            <div style="margin-top: 1.5rem;">
+                <h4 style="margin: 0 0 0.6rem 0; font-size: 0.95rem; color: #475569;">📋 Payment History</h4>
+                <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem;">
+                        <thead>
+                            <tr style="background: #f8fafc;">
+                                <th style="padding: 8px 10px; text-align: left; color: #64748b; font-weight: 600;">Amount</th>
+                                <th style="padding: 8px 10px; text-align: left; color: #64748b; font-weight: 600;">Term</th>
+                                <th style="padding: 8px 10px; text-align: left; color: #64748b; font-weight: 600;">Year</th>
+                                <th style="padding: 8px 10px; text-align: left; color: #64748b; font-weight: 600;">Date</th>
+                            </tr>
+                        </thead>
+                        <tbody id="paymentModalHistory"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="school.js"></script>
+</body>
+</html>

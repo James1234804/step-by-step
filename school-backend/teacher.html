@@ -1,0 +1,364 @@
+ <!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Teacher Dashboard — Shalom High</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="teacher.css">
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="teacher-nav">
+  <div class="nav-left">
+    <img src="shallom-logo.jpeg" class="nav-logo" alt="Shalom High">
+    <h1 class="nav-title">Step by Step <span>Academy</span></h1>
+    <span class="nav-badge">Teacher</span>
+  </div>
+  <div class="nav-right">
+    <div class="nav-user">
+      <span class="nav-user-name" id="teacherName">Teacher</span>
+      <span class="nav-user-class" id="teacherClassInfo"></span>
+    </div>
+    <button id="btnTeacherBack" class="btn secondary">Main Dashboard</button>
+    <button id="btnTeacherLogout" class="btn btn-danger">Logout</button>
+  </div>
+</nav>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Menu</div>
+      <button class="nav-item active" data-page="students">
+        <span class="nav-icon">👥</span> My Students
+      </button>
+      <button class="nav-item" data-page="credentials">
+        <span class="nav-icon">🔑</span> Credentials
+      </button>
+      <button class="nav-item" data-page="timetable">
+        <span class="nav-icon">🗓️</span> Timetable
+      </button>
+      <button class="nav-item" data-page="attendance">
+        <span class="nav-icon">📋</span> Attendance
+      </button>
+      <button class="nav-item" data-page="work">
+        <span class="nav-icon">📤</span> Send Work
+      </button>
+      <button class="nav-item" data-page="announcements">
+        <span class="nav-icon">📢</span> Announcements
+      </button>
+    </div>
+    <div class="sidebar-footer">
+      <button class="btn-logout" id="sidebarLogout">🚪 Logout</button>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- MY STUDENTS -->
+    <div class="page active" id="page-students">
+      <div class="page-header">
+        <h2>My <span>Students</span></h2>
+        <p>Students assigned to your class</p>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Class List</h3></div>
+        <div class="card-body">
+          <ul id="teacherStudentsList" style="list-style:none;"></ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- CREDENTIALS -->
+    <div class="page" id="page-credentials">
+      <div class="page-header">
+        <h2>Student <span>Credentials</span></h2>
+        <p>Create login accounts so students can access their dashboard</p>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Create Credentials</h3></div>
+        <div class="card-body">
+          <form id="createStudentForm">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Select Student</label>
+                <select id="studentSelect" required>
+                  <option value="">Select a student...</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Student Login ID</label>
+                <input type="text" id="studentId" placeholder="e.g. STU001" required />
+              </div>
+              <div class="form-group">
+                <label>Set Password</label>
+                <input type="password" id="studentPassword" placeholder="Choose a password" required />
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn primary">Create Login Account</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Login Status</h3></div>
+        <div class="card-body"><div id="credentialsList"></div></div>
+      </div>
+    </div>
+
+    <!-- TIMETABLE PAGE — TWO SECTIONS -->
+    <div class="page" id="page-timetable">
+      <div class="page-header">
+        <h2>Class <span>Timetable</span></h2>
+        <p>Your assigned schedule and the timetable you send to students</p>
+      </div>
+
+      <!-- SECTION 1: Admin assigned timetable (read-only) -->
+      <div class="card">
+        <div class="card-header">
+          <h3>📌 My Assigned Schedule <span style="font-size:0.75rem;font-weight:500;color:var(--text-muted);margin-left:8px;">(set by admin)</span></h3>
+          <span class="tt-info" id="ttAdminCount"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Day</th><th>Subject</th><th>Class</th><th>Start</th><th>End</th><th>Room</th>
+              </tr>
+            </thead>
+            <tbody id="ttAdminBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SECTION 2: Student timetable (teacher creates for students) -->
+      <div class="card">
+        <div class="card-header">
+          <h3>📅 Student Timetable <span style="font-size:0.75rem;font-weight:500;color:var(--text-muted);margin-left:8px;">(visible to your students)</span></h3>
+        </div>
+        <div class="card-body">
+          <form id="ttForm">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Day</label>
+                <select id="ttDay" required>
+                  <option value="">Select Day</option>
+                  <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+                  <option>Thursday</option><option>Friday</option><option>Saturday</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Subject</label>
+                <input id="ttSubject" placeholder="e.g. Mathematics" required />
+              </div>
+              <div class="form-group">
+                <label>Teacher Name</label>
+                <input id="ttTeacher" placeholder="Teacher name" />
+              </div>
+              <div class="form-group">
+                <label>Start Time</label>
+                <input id="ttStart" type="time" required />
+              </div>
+              <div class="form-group">
+                <label>End Time</label>
+                <input id="ttEnd" type="time" required />
+              </div>
+              <div class="form-group">
+                <label>Room Number</label>
+                <input id="ttRoom" placeholder="e.g. B12" />
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn primary">Add to Student Timetable</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Student Timetable Entries</h3>
+          <span class="tt-info" id="ttClassCount"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Day</th><th>Subject</th><th>Teacher</th><th>Start</th><th>End</th><th>Room</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="ttBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ATTENDANCE -->
+    <div class="page" id="page-attendance">
+      <div class="page-header">
+        <h2>Class <span>Attendance</span></h2>
+        <p>Mark and view class attendance</p>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Mark Attendance</h3></div>
+        <div class="card-body">
+          <form id="attForm">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Date</label>
+                <input id="attDate" type="date" required>
+              </div>
+              <div class="form-group">
+                <label>Class</label>
+                <select id="attClassSelect" required>
+                  <option value="">Select Class</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="button" id="attLoadBtn" class="btn primary">Load Students</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card" id="attMarkingCard" style="display:none;">
+        <div class="card-header">
+          <h3>Mark Students</h3>
+          <span class="tt-info" id="attMarkingInfo"></span>
+        </div>
+        <div class="card-body">
+          <div class="att-mark-list" id="attStudentMarkingList"></div>
+          <div class="form-actions" style="margin-top:1rem;">
+            <button type="button" id="attSaveBtn" class="btn primary">Save Attendance</button>
+            <button type="button" id="attCancelBtn" class="btn secondary">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h3>Attendance Records</h3>
+            <div class="day-filters" id="dayFilterButtons">
+              <button class="day-btn active-day" data-day="all">All Days</button>
+              <button class="day-btn" data-day="Monday">Mon</button>
+              <button class="day-btn" data-day="Tuesday">Tue</button>
+              <button class="day-btn" data-day="Wednesday">Wed</button>
+              <button class="day-btn" data-day="Thursday">Thu</button>
+              <button class="day-btn" data-day="Friday">Fri</button>
+              <button class="day-btn" data-day="Saturday">Sat</button>
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Date</th><th>Student</th><th>Class</th><th>Status</th><th>Teacher</th></tr>
+            </thead>
+            <tbody id="attBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- SEND WORK -->
+    <div class="page" id="page-work">
+      <div class="page-header">
+        <h2>Send <span>Work</span></h2>
+        <p>Upload and send assignments to your students</p>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>New Assignment</h3></div>
+        <div class="card-body">
+          <form id="sendWorkForm">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Work Title</label>
+                <input type="text" id="workTitle" placeholder="e.g. Chapter 3 Exercises" required />
+              </div>
+              <div class="form-group">
+                <label>Due Date</label>
+                <input type="date" id="dueDate" required />
+              </div>
+            </div>
+            <div class="form-group" style="margin-top:1rem;">
+              <label>Attach File</label>
+              <input type="file" id="workFile" required />
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn primary">Send to All Students</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Sent Assignments</h3></div>
+        <div class="card-body" id="sentWorkList">
+          <p class="muted-text">No assignments sent yet.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ANNOUNCEMENTS -->
+    <div class="page" id="page-announcements">
+      <div class="page-header">
+        <h2>Class <span>Announcements</span></h2>
+        <p>Post announcements to your students</p>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>New Announcement</h3></div>
+        <div class="card-body">
+          <form id="annForm">
+            <div class="form-group">
+              <label>Title</label>
+              <input id="annTitle" placeholder="Announcement title" required />
+            </div>
+            <div class="form-group" style="margin-top:1rem;">
+              <label>Message</label>
+              <textarea id="annBody" placeholder="Write your announcement here..." rows="4" required></textarea>
+            </div>
+            <label class="checkbox-label" style="margin-top:1rem;">
+              <input type="checkbox" id="annUrgent">
+              <span>🚨 Mark as Urgent</span>
+            </label>
+            <div class="form-actions">
+              <button type="submit" class="btn primary">Post Announcement</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Posted Announcements</h3></div>
+        <div class="card-body" id="annList">
+          <p class="muted-text">No announcements posted yet.</p>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('page-' + btn.dataset.page).classList.add('active');
+  });
+});
+
+document.getElementById('sidebarLogout')?.addEventListener('click', () => {
+  document.getElementById('btnTeacherLogout')?.click();
+});
+</script>
+<script src="teacher.js"></script>
+</body>
+</html>
