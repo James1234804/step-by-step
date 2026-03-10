@@ -4,7 +4,7 @@
 
   async function login(username, password) {
     try {
-      const res = await fetch('http://localhost:3000/api/auth/login', {
+      const res = await fetch('https://step-by-step-production-ad72.up.railway.app/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
@@ -60,7 +60,7 @@ if (tBtn) {
     if (p === null) return;
 
     try {
-      const res = await fetch('http://localhost:3000/api/auth/teacher-login', {
+      const res = await fetch('https://step-by-step-production-ad72.up.railway.app/api/auth/teacher-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: u.trim(), password: p })
@@ -104,7 +104,7 @@ if (tBtn) {
       }
 
       try {
-        const res  = await fetch('http://localhost:3000/api/auth/student-login', {
+        const res  = await fetch('https://step-by-step-production-ad72.up.railway.app/api/auth/student-login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ studentId, password })

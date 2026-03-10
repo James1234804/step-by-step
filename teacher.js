@@ -1,4 +1,4 @@
- const API_URL = 'http://localhost:3000/api';
+ const API_URL = 'https://step-by-step-production-ad72.up.railway.app/api';
 
 function showNotification(msg, type) {
     alert(msg);
@@ -404,7 +404,7 @@ async function loadFromBackend() {
         const studentId=document.getElementById('studentId').value.trim();
         const password=document.getElementById('studentPassword').value;
         if(!studentDbId){ alert('Please select a student from the dropdown'); return; }
-        const res=await fetch('http://localhost:3000/api/teacher/set-credentials',{
+        const res=await fetch('https://step-by-step-production-ad72.up.railway.app/api/teacher/set-credentials',{
           method:'POST', headers:authHeaders(),
           body:JSON.stringify({studentDbId,studentId,password})
         });
@@ -432,7 +432,7 @@ async function loadFromBackend() {
         formData.append('file', document.getElementById('workFile').files[0]);
         formData.append('dueDate', document.getElementById('dueDate').value);
         formData.append('teacherName', teacherName);
-        const res = await fetch('http://localhost:3000/api/teacher/send-work', {
+        const res = await fetch('https://step-by-step-production-ad72.up.railway.app/api/teacher/send-work', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${getToken()}` },
           body: formData
@@ -537,7 +537,7 @@ async function loadSentWork(){
 
     // Refresh submissions from backend
     try {
-      const syncRes = await fetch('http://localhost:3000/api/sync', { headers: authHeaders() });
+      const syncRes = await fetch('https://step-by-step-production-ad72.up.railway.app/api/sync', { headers: authHeaders() });
       const syncData = await syncRes.json();
       if(syncData.submissions && syncData.submissions.length > 0){
         localStorage.setItem('submissions', JSON.stringify(syncData.submissions));
@@ -545,7 +545,7 @@ async function loadSentWork(){
     } catch(e) { console.warn('Could not refresh submissions:', e); }
 
     try {
-      const res = await fetch(`http://localhost:3000/api/teacher/sent-work?teacherName=${encodeURIComponent(teacherName)}`, {
+      const res = await fetch(`https://step-by-step-production-ad72.up.railway.app/api/teacher/sent-work?teacherName=${encodeURIComponent(teacherName)}`, {
         headers: authHeaders()
       });
       const data = await res.json();

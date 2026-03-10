@@ -1,6 +1,6 @@
  // student-dashboard.js
 
-const API = 'http://localhost:3000';
+const API = 'https://step-by-step-production-ad72.up.railway.app';
 
 // ── AUTH CHECK ──
 const currentUser = JSON.parse(localStorage.getItem('currentUser'));

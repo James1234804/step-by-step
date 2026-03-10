@@ -110,7 +110,7 @@ function navigateTo(section) {
 // ===========================
 // API FUNCTIONS
 // ===========================
-const API_URL = 'http://localhost:3000/api';
+const API_URL = 'https://step-by-step-production-ad72.up.railway.app/api';
 
 const BACKEND_KEYS = ['students', 'teachers', 'classes', 'timetables', 'fees', 'attendance'];
 
@@ -2088,7 +2088,7 @@ async function saveTotalFees() {
     if (!amount || isNaN(amount)) { showNotification('Enter a valid amount', 'warning'); return; }
     
     try {
-        await fetch('http://localhost:3000/api/teacher/fee-settings', {
+        await fetch('https://step-by-step-production-ad72.up.railway.app/api/teacher/fee-settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
             body: JSON.stringify({ totalDue: parseInt(amount) })
