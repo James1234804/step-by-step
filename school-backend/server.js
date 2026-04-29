@@ -76,7 +76,7 @@ async function runDailyBackup() {
 setInterval(runDailyBackup, 24 * 60 * 60 * 1000);
 runDailyBackup();
 
-sequelize.sync().then(() => {
+sequelize.sync({ force: false }).then(() => {
     console.log('Database ready!');
     app.listen(3000, () => console.log('Server running on port 3000'));
 });
