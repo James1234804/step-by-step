@@ -4,7 +4,7 @@
 
   async function login(username, password) {
     try {
-      const res = await fetch('https://step-by-step-production-ad72.up.railway.app/api/auth/login', {
+      const res = await fetch('https://shallom-high-elite.onrender.com/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
@@ -50,38 +50,37 @@
     });
 
     // ── TEACHER LOGIN ──
-    // ── TEACHER LOGIN ──
-const tBtn = document.getElementById('btnTeacherLogin');
-if (tBtn) {
-  tBtn.addEventListener('click', async () => {
-    const u = prompt('Teacher username or name:');
-    if (!u) return;
-    const p = prompt('Password:');
-    if (p === null) return;
+    const tBtn = document.getElementById('btnTeacherLogin');
+    if (tBtn) {
+      tBtn.addEventListener('click', async () => {
+        const u = prompt('Teacher username or name:');
+        if (!u) return;
+        const p = prompt('Password:');
+        if (p === null) return;
 
-    try {
-      const res = await fetch('https://step-by-step-production-ad72.up.railway.app/api/auth/teacher-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: u.trim(), password: p })
+        try {
+          const res = await fetch('https://shallom-high-elite.onrender.com/api/auth/teacher-login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: u.trim(), password: p })
+          });
+          const data = await res.json();
+          if (data.token) {
+            localStorage.setItem('authToken', data.token);
+            localStorage.setItem('currentUser', JSON.stringify({
+              id: data.id,
+              name: data.name,
+              role: 'teacher'
+            }));
+            window.location.href = 'teacher.html';
+          } else {
+            alert(data.error || 'Login failed');
+          }
+        } catch(e) {
+          alert('Could not connect to server');
+        }
       });
-      const data = await res.json();
-      if (data.token) {
-        localStorage.setItem('authToken', data.token);
-        localStorage.setItem('currentUser', JSON.stringify({
-          id: data.id,
-          name: data.name,
-          role: 'teacher'
-        }));
-        window.location.href = 'teacher.html';
-      } else {
-        alert(data.error || 'Login failed');
-      }
-    } catch(e) {
-      alert('Could not connect to server');
     }
-  });
-}
 
     // ── STUDENT LOGIN - open modal ──
     document.getElementById('btnStudentLogin').addEventListener('click', () => {
@@ -104,7 +103,7 @@ if (tBtn) {
       }
 
       try {
-        const res  = await fetch('https://step-by-step-production-ad72.up.railway.app/api/auth/student-login', {
+        const res  = await fetch('https://shallom-high-elite.onrender.com/api/auth/student-login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ studentId, password })
@@ -120,7 +119,7 @@ if (tBtn) {
             className: data.className,
             role:      'student'
           }));
-         window.location.href = 'student.html';
+          window.location.href = 'student.html';
         } else {
           alert(data.error || 'Invalid Student ID or password');
         }
