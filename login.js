@@ -22,21 +22,14 @@
         }
         return;
       }
-    } catch(e) {
-      console.warn('Backend login failed, trying localStorage:', e);
-    }
 
-    const users = getData('users') || [];
-    const user = users.find(u => u.username === username && u.password === password);
-    if (user) {
-      saveData('currentUser', user);
-      if (user.role === 'teacher') {
-        window.location.href = 'teacher.html';
-      } else {
-        window.location.href = 'index.html';
-      }
-    } else {
-      alert('Invalid credentials');
+      // Server responded but login failed - show the real error
+      alert(data.error || 'Invalid username or password');
+      return;
+
+    } catch(e) {
+      console.warn('Backend login failed:', e);
+      alert('Could not connect to server. Please try again.');
     }
   }
 
