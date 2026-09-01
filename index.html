@@ -4,102 +4,116 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shallom High School - Management System</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="school.css">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
-    <!-- Navigation Bar -->
-    <nav class="navbar">
-        <div class="nav-container">
-            <div class="nav-logo">
-                <img src="shallom-logo.jpeg" alt="Shallom High School Logo" class="logo-img">
-                <span class="school-name">Step by Step Academy</span>
+    <div class="app-shell">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <img src="shallom-logo.jpeg" alt="Shallom High School Logo" class="logo-img">
+            <span class="school-name">Step by Step<small>Academy</small></span>
+        </div>
+        <div class="sidebar-menu">
+            <div class="menu-section">
+                <h3 class="section-title">Main</h3>
+                <a href="#dashboard" class="menu-item active" data-menu="dashboard" data-section="dashboard">
+                    <span class="icon" data-lucide="layout-dashboard"></span>
+                    <span class="label">Dashboard</span>
+                </a>
+                <a href="#students" class="menu-item" data-menu="students" data-section="students">
+                    <span class="icon" data-lucide="users"></span>
+                    <span class="label">Students</span>
+                </a>
+                <a href="#teachers" class="menu-item" data-menu="teachers" data-section="teachers">
+                    <span class="icon" data-lucide="graduation-cap"></span>
+                    <span class="label">Teachers</span>
+                </a>
             </div>
-            <ul class="nav-menu">
-                <li><a href="#dashboard" class="nav-link active" data-section="dashboard">Dashboard</a></li>
-                <li><a href="#students" class="nav-link" data-section="students">Students</a></li>
-                <li><a href="#classes" class="nav-link" data-section="classes">Classes</a></li>
-                <li><a href="#timetable" class="nav-link" data-section="timetable">Timetable</a></li>
-                <li><a href="#fees" class="nav-link" data-section="fees">Fees</a></li>
-                <li><a href="#teachers" class="nav-link" data-section="teachers">Teachers</a></li>
-            </ul>
-            <div class="user-profile">
-                <div class="notification-badge-container" style="position: relative; margin-right: 1rem;">
-                    <button id="notificationBell" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; position: relative;" title="Notifications">
-                        🔔
-                        <span id="notificationCount" class="notification-count-badge" style="position: absolute; top: -5px; right: -8px; background: #f5576c; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: bold; display: none;">0</span>
-                    </button>
-                </div>
-                <span class="username" id="navUsername">Admin</span>
-                <button id="btnLogout" class="btn logout-btn" title="Logout">Logout</button>
+            <div class="menu-section">
+                <h3 class="section-title">Academic</h3>
+                <a href="#classes" class="menu-item" data-menu="classes" data-section="classes">
+                    <span class="icon" data-lucide="book-open"></span>
+                    <span class="label">Classes</span>
+                </a>
+                <a href="#timetable" class="menu-item" data-menu="timetable" data-section="timetable">
+                    <span class="icon" data-lucide="calendar-days"></span>
+                    <span class="label">Timetable</span>
+                </a>
+                <a href="#fees" class="menu-item" data-menu="fees" data-section="fees">
+                    <span class="icon" data-lucide="wallet"></span>
+                    <span class="label">Fees</span>
+                </a>
             </div>
         </div>
-    </nav>
-    
-    <!-- Main Container -->
-    <div class="container">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="sidebar-menu">
-                <div class="menu-section">
-                    <h3 class="section-title">Main</h3>
-                    <a href="#dashboard" class="menu-item active" data-menu="dashboard">
-                        <span class="icon">📊</span>
-                        <span class="label">Dashboard</span>
-                    </a>
-                    <a href="#students" class="menu-item" data-menu="students">
-                        <span class="icon">👥</span>
-                        <span class="label">Students</span>
-                    </a>
-                    <a href="#teachers" class="menu-item" data-menu="teachers">
-                        <span class="icon">👨‍🏫</span>
-                        <span class="label">Teachers</span>
-                    </a>
+    </aside>
+
+    <div class="content-wrap" style="flex:1; min-width:0;">
+        <nav class="navbar">
+            <div class="nav-container">
+                <div class="topbar-search">
+                    <span data-lucide="search"></span>
+                    <input type="text" placeholder="Search students, staff, invoices...">
                 </div>
-                <div class="menu-section">
-                    <h3 class="section-title">Academic</h3>
-                    <a href="#classes" class="menu-item" data-menu="classes">
-                        <span class="icon">📚</span>
-                        <span class="label">Classes</span>
-                    </a>
-                    <a href="#timetable" class="menu-item" data-menu="timetable">
-                        <span class="icon">🗓️</span>
-                        <span class="label">Timetable</span>
-                    </a>
-                    <a href="#fees" class="menu-item" data-menu="fees">
-                        <span class="icon">💰</span>
-                        <span class="label">Fees</span>
-                    </a>
+                <div class="user-profile">
+                    <div class="notification-badge-container" style="position: relative;">
+                        <button id="notificationBell" class="icon-btn" title="Notifications">
+                            <span data-lucide="bell"></span>
+                            <span id="notificationCount" class="notification-count-badge" style="position: absolute; top: -4px; right: -4px; background: var(--danger-color); color: white; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 0.68rem; font-weight: bold; display: none;">0</span>
+                        </button>
+                    </div>
+                    <div class="avatar" id="navAvatar">A</div>
+                    <div>
+                        <span class="username" id="navUsername">Admin</span>
+                        <span class="username-role">Administrator</span>
+                    </div>
+                    <button id="btnLogout" class="btn btn-secondary logout-btn" title="Logout" style="padding: 0.5rem 1rem; font-size: 0.85rem;">Logout</button>
                 </div>
             </div>
-        </aside>
+        </nav>
 
         <!-- Main Content Area -->
         <main class="main-content">
 
             <!-- ===== DASHBOARD SECTION ===== -->
             <section id="dashboard-section" class="content-section active">
-                <div class="section-header">
-                    <h1>Dashboard</h1>
-                    <p class="subtitle">Welcome back! Here's your school overview</p>
+                <div class="greeting-header">
+                    <div>
+                        <h1 id="dashGreeting">Good morning, Admin</h1>
+                        <p class="subtitle">Shallom High School &middot; Step by Step Academy</p>
+                    </div>
+                    <p class="greeting-note" id="dashDateNote"></p>
+                </div>
+
+                <div class="insight-banner">
+                    <div class="insight-icon"><span data-lucide="sparkles"></span></div>
+                    <div class="insight-text">
+                        <strong>Overview</strong>
+                        <span id="insightSummary">Your school's key numbers, updated live as students, teachers and classes are added.</span>
+                    </div>
+                    <button class="btn btn-primary" onclick="navigateTo('students')">View Students</button>
                 </div>
 
                 <div class="stats-grid">
                     <div class="stat-card">
-                        <div class="stat-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">👥</div>
+                        <div class="stat-icon tone-blue"><span data-lucide="users"></span></div>
                         <div class="stat-info">
                             <h3 class="stat-title">Total Students</h3>
                             <p id="totalStudentsStat" class="stat-value">0</p>
                         </div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">👨‍🏫</div>
+                        <div class="stat-icon tone-amber"><span data-lucide="graduation-cap"></span></div>
                         <div class="stat-info">
                             <h3 class="stat-title">Total Teachers</h3>
                             <p id="totalTeachersStat" class="stat-value">0</p>
                         </div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">📚</div>
+                        <div class="stat-icon tone-navy"><span data-lucide="book-open"></span></div>
                         <div class="stat-info">
                             <h3 class="stat-title">Classes</h3>
                             <p id="totalClassesStat" class="stat-value">0</p>
@@ -107,28 +121,44 @@
                     </div>
                 </div>
 
+                <div class="chart-row">
+                    <div class="card chart-card">
+                        <div class="card-header">
+                            <h2><span data-lucide="bar-chart-3"></span>Students per Class</h2>
+                        </div>
+                        <canvas id="classEnrollmentChart" height="110"></canvas>
+                        <p id="classEnrollmentEmpty" class="empty-chart-note" style="display:none;">Add students and assign them to classes to see this chart.</p>
+                    </div>
+                    <div class="card chart-card">
+                        <div class="card-header">
+                            <h2><span data-lucide="pie-chart"></span>School Composition</h2>
+                        </div>
+                        <canvas id="compositionChart" height="110"></canvas>
+                    </div>
+                </div>
+
                 <div class="dashboard-grid">
                     <div class="card">
                         <div class="card-header">
-                            <h2>📬 Live Attendance Notifications</h2>
-                            <button id="clearNotificationsBtn" class="btn" style="padding: 4px 12px; font-size: 0.9em;">Clear All</button>
+                            <h2><span data-lucide="bell-ring"></span>Live Attendance Notifications</h2>
+                            <button id="clearNotificationsBtn" class="btn btn-secondary" style="padding: 4px 12px; font-size: 0.82rem;">Clear All</button>
                         </div>
                         <div id="notificationsContainer" class="notifications-list" style="max-height: 400px; overflow-y: auto;">
-                            <p style="color: #999; text-align: center; padding: 2rem;">No attendance notifications yet</p>
+                            <p style="color: var(--muted-text); text-align: center; padding: 2rem;">No attendance notifications yet</p>
                         </div>
                     </div>
 
                     <div class="card">
                         <div class="card-header">
-                            <h2>Recent Activities</h2>
-                            <button id="clearActivitiesBtn" class="btn" style="padding: 4px 12px; font-size: 0.9em;">Clear All</button>
+                            <h2><span data-lucide="history"></span>Recent Activities</h2>
+                            <button id="clearActivitiesBtn" class="btn btn-secondary" style="padding: 4px 12px; font-size: 0.82rem;">Clear All</button>
                         </div>
                         <div id="recentActivitiesList" class="activity-list"></div>
                     </div>
 
                     <div class="card">
                         <div class="card-header">
-                            <h2>Quick Actions</h2>
+                            <h2><span data-lucide="zap"></span>Quick Actions</h2>
                         </div>
                         <div class="action-buttons">
                             <button class="btn btn-primary" onclick="navigateTo('students')">+ Add Student</button>
@@ -582,6 +612,7 @@
             </section>
 
         </main>
+    </div>
     </div>
 
     <!-- ===== PAYMENT MODAL ===== -->
