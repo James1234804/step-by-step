@@ -35,6 +35,10 @@
                     <span class="icon" data-lucide="graduation-cap"></span>
                     <span class="label">Teachers</span>
                 </a>
+                <a href="#grades" class="menu-item" data-menu="grades" data-section="grades">
+                    <span class="icon" data-lucide="clipboard-check"></span>
+                    <span class="label">Examinations</span>
+                </a>
                 <a href="#classes" class="menu-item" data-menu="classes" data-section="classes">
                     <span class="icon" data-lucide="book-open"></span>
                     <span class="label">Classes</span>
@@ -152,16 +156,17 @@
                 <div class="chart-row">
                     <div class="card chart-card">
                         <div class="card-header">
-                            <h2><span data-lucide="bar-chart-3"></span>Students per Class</h2>
+                            <h2><span data-lucide="line-chart"></span>Fee Collection</h2>
                         </div>
-                        <canvas id="classEnrollmentChart" height="110"></canvas>
-                        <p id="classEnrollmentEmpty" class="empty-chart-note" style="display:none;">Add students and assign them to classes to see this chart.</p>
+                        <canvas id="feeCollectionChart" height="110"></canvas>
+                        <p id="feeCollectionEmpty" class="empty-chart-note" style="display:none;">Record a payment to see collection trends here.</p>
                     </div>
                     <div class="card chart-card">
                         <div class="card-header">
-                            <h2><span data-lucide="pie-chart"></span>School Composition</h2>
+                            <h2><span data-lucide="pie-chart"></span>Enrollment by Gender</h2>
                         </div>
-                        <canvas id="compositionChart" height="110"></canvas>
+                        <canvas id="genderChart" height="110"></canvas>
+                        <p id="genderChartEmpty" class="empty-chart-note" style="display:none;">Add gender when enrolling students to see this chart.</p>
                     </div>
                 </div>
 
@@ -388,6 +393,14 @@
                             <label>Class</label>
                             <select id="studentClassSelect" required>
                                 <option value="">Select Class</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label>Gender</label>
+                            <select id="studentGenderSelect">
+                                <option value="">Prefer not to say</option>
+                                <option value="Female">Female</option>
+                                <option value="Male">Male</option>
                             </select>
                         </div>
                         <div class="form-actions">
