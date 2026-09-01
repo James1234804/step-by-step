@@ -9,15 +9,15 @@
 }
 
 :root {
-    --primary-color: #2563EB;
-    --primary-dark: #1D4ED8;
+    --primary-color: #EA580C;
+    --primary-dark: #C2410C;
     --secondary-color: #16345C;
     --navy-900: #0F2540;
     --navy-800: #16345C;
     --navy-700: #1E4272;
     --success-color: #16A34A;
     --danger-color: #DC2626;
-    --warning-color: #F5A623;
+    --warning-color: #EAB308;
     --info-color: #2563EB;
     --light-bg: #F4F6F9;
     --dark-text: #1B2733;
@@ -395,7 +395,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
     stroke-width: 2px;
 }
 
-.stat-icon.tone-blue { background: #E8EFFE; color: var(--primary-color); }
+.stat-icon.tone-blue { background: #FCEADB; color: var(--primary-color); }
 .stat-icon.tone-amber { background: #FDF1DE; color: var(--warning-color); }
 .stat-icon.tone-green { background: #E5F6EA; color: var(--success-color); }
 .stat-icon.tone-navy { background: #E5EBF2; color: var(--navy-800); }
