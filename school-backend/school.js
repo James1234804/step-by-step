@@ -280,6 +280,30 @@ function updateDashboardStats() {
     if (elTeachers) elTeachers.textContent = totalTeachers.toLocaleString();
     if (elClasses) elClasses.textContent = totalClasses.toLocaleString();
 
+    // Fees Collected — sum of all recorded payments
+    const fees = getData('fees') || [];
+    const feesCollected = fees.reduce((sum, f) => sum + (parseInt(f.amount) || 0), 0);
+    const elFees = document.getElementById('feesCollectedStat');
+    if (elFees) elFees.textContent = formatCurrency(feesCollected.toString());
+
+    // Active Exams — distinct exam types currently recorded in Grades
+    const grades = getData('grades') || [];
+    const examTypes = new Set(grades.map(g => (g.examType || g.exam || '').trim().toLowerCase()).filter(Boolean));
+    const elExams = document.getElementById('activeExamsStat');
+    if (elExams) elExams.textContent = examTypes.size.toLocaleString();
+
+    // School Mean Score — average marks across all recorded grades
+    const marksList = grades.map(g => parseFloat(g.marks)).filter(m => !isNaN(m));
+    const elMean = document.getElementById('schoolMeanStat');
+    if (elMean) {
+        if (marksList.length > 0) {
+            const mean = marksList.reduce((a, b) => a + b, 0) / marksList.length;
+            elMean.textContent = Math.round(mean) + '%';
+        } else {
+            elMean.textContent = '—';
+        }
+    }
+
     const insightEl = document.getElementById('insightSummary');
     if (insightEl) {
         insightEl.textContent = totalStudents > 0
