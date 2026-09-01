@@ -75,6 +75,16 @@
                             <span data-lucide="bell"></span>
                             <span id="notificationCount" class="notification-count-badge" style="position: absolute; top: -4px; right: -4px; background: var(--danger-color); color: white; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 0.68rem; font-weight: bold; display: none;">0</span>
                         </button>
+                        <div id="notificationDropdown" class="notification-dropdown" style="display: none;">
+                            <div class="notification-dropdown-header">
+                                <span>Notifications</span>
+                                <button id="markAllReadBtn" class="mark-read-btn">Mark all read</button>
+                            </div>
+                            <div id="notificationDropdownList" class="notification-dropdown-list"></div>
+                            <div class="notification-dropdown-footer">
+                                <button id="clearNotificationsBtn" class="clear-notifs-btn">Clear all</button>
+                            </div>
+                        </div>
                     </div>
                     <div class="avatar" id="navAvatar">A</div>
                     <div>
@@ -171,16 +181,6 @@
                 </div>
 
                 <div class="dashboard-grid">
-                    <div class="card">
-                        <div class="card-header">
-                            <h2><span data-lucide="bell-ring"></span>Live Attendance Notifications</h2>
-                            <button id="clearNotificationsBtn" class="btn btn-secondary" style="padding: 4px 12px; font-size: 0.82rem;">Clear All</button>
-                        </div>
-                        <div id="notificationsContainer" class="notifications-list" style="max-height: 400px; overflow-y: auto;">
-                            <p style="color: var(--muted-text); text-align: center; padding: 2rem;">No attendance notifications yet</p>
-                        </div>
-                    </div>
-
                     <div class="card">
                         <div class="card-header">
                             <h2><span data-lucide="history"></span>Recent Activities</h2>
