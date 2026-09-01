@@ -1,6 +1,6 @@
  // student-dashboard.js
 
-const API = 'https://step-by-step-production-ad72.up.railway.app';
+const API = 'https://shallom-high-elite.onrender.com';
 
 // ── AUTH CHECK ──
 const currentUser = JSON.parse(localStorage.getItem('currentUser'));
