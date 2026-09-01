@@ -541,6 +541,14 @@ function renderNotificationDropdown() {
     notifications.slice(0, 20).forEach(n => {
         const item = document.createElement('div');
         item.className = 'notif-item' + (n.read ? '' : ' unread');
+        item.addEventListener('click', () => {
+            if (!n.read) {
+                const readIds = getReadNotificationIds();
+                readIds.add(n.id);
+                saveReadNotificationIds(readIds);
+                renderNotificationDropdown();
+            }
+        });
 
         const dot = document.createElement('span');
         dot.className = 'notif-dot';
@@ -594,18 +602,36 @@ function playNotificationSound() {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         if (!AudioCtx) return;
         const ctx = new AudioCtx();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, ctx.currentTime);
-        osc.frequency.setValueAtTime(1046.5, ctx.currentTime + 0.09);
-        gain.gain.setValueAtTime(0.001, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.28);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.3);
+
+        // A single bell "strike": a fundamental + inharmonic overtones
+        // (the ratios that make a struck bell sound like a bell, not a beep),
+        // each with a fast attack and a natural decaying ring.
+        function strikeBell(startTime, fundamental, volume) {
+            const partials = [
+                { ratio: 1,    gain: 1.0 },
+                { ratio: 2.4,  gain: 0.55 },
+                { ratio: 3.9,  gain: 0.32 },
+                { ratio: 5.4,  gain: 0.18 }
+            ];
+            partials.forEach(p => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(fundamental * p.ratio, startTime);
+                const peak = volume * p.gain;
+                gain.gain.setValueAtTime(0.0001, startTime);
+                gain.gain.exponentialRampToValueAtTime(peak, startTime + 0.012);
+                gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.9);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(startTime);
+                osc.stop(startTime + 0.95);
+            });
+        }
+
+        const now = ctx.currentTime;
+        strikeBell(now, 987.77, 0.5);        // B5 — first strike
+        strikeBell(now + 0.16, 1318.51, 0.42); // E6 — second, higher strike
     } catch (e) {
         console.warn('Notification sound unavailable', e);
     }
