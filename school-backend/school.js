@@ -352,25 +352,45 @@ function renderDashboardCharts(students, classes) {
             });
             const values = sortedKeys.map(k => monthTotals[k]);
 
+            // Current outstanding balance — a snapshot total, not a real historical
+            // trend, shown as a flat dashed reference line across the same months.
+            const totalCollectedAllTime = fees.reduce((sum, f) => sum + (parseInt(f.amount) || 0), 0);
+            const totalDue = parseInt(localStorage.getItem('totalFeesDue') || '0');
+            const totalExpected = totalDue * (students || []).length;
+            const outstandingNow = Math.max(0, totalExpected - totalCollectedAllTime);
+            const outstandingLine = labels.map(() => outstandingNow);
+
             if (_feeCollectionChart) _feeCollectionChart.destroy();
             _feeCollectionChart = new Chart(feeCanvas.getContext('2d'), {
                 type: 'line',
                 data: {
                     labels,
-                    datasets: [{
-                        label: 'Collected',
-                        data: values,
-                        borderColor: '#EA580C',
-                        backgroundColor: 'rgba(234, 88, 12, 0.1)',
-                        fill: true,
-                        tension: 0.35,
-                        pointRadius: 3,
-                        pointBackgroundColor: '#EA580C'
-                    }]
+                    datasets: [
+                        {
+                            label: 'Collected',
+                            data: values,
+                            borderColor: '#EA580C',
+                            backgroundColor: 'rgba(234, 88, 12, 0.1)',
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 3,
+                            pointBackgroundColor: '#EA580C'
+                        },
+                        {
+                            label: 'Outstanding (current)',
+                            data: outstandingLine,
+                            borderColor: '#F5A623',
+                            backgroundColor: 'transparent',
+                            borderDash: [6, 4],
+                            fill: false,
+                            tension: 0,
+                            pointRadius: 0
+                        }
+                    ]
                 },
                 options: {
                     responsive: true,
-                    plugins: { legend: { display: false } },
+                    plugins: { legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 10, font: { size: 11 } } } },
                     scales: {
                         y: { beginAtZero: true, ticks: { callback: v => formatCurrency(v.toString()) }, grid: { color: '#EEF2F7' } },
                         x: { grid: { display: false } }
