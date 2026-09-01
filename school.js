@@ -12,6 +12,23 @@ const contentSections = document.querySelectorAll('.content-section');
 
 document.addEventListener('DOMContentLoaded', async function() {
     console.log('✓ Page loaded - initializing...');
+
+    // Render Lucide icons (sidebar, topbar, card headers)
+    if (window.lucide) { lucide.createIcons(); }
+
+    // Greeting + date
+    try {
+        const hour = new Date().getHours();
+        const greetWord = hour < 12 ? 'Good morning' : (hour < 17 ? 'Good afternoon' : 'Good evening');
+        const currentUserForGreeting = getData('currentUser');
+        const displayName = (currentUserForGreeting && (currentUserForGreeting.name || currentUserForGreeting.username)) || 'Admin';
+        const greetEl = document.getElementById('dashGreeting');
+        if (greetEl) greetEl.textContent = `${greetWord}, ${displayName.split(' ')[0]}`;
+        const dateEl = document.getElementById('dashDateNote');
+        if (dateEl) dateEl.textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        const avatarEl = document.getElementById('navAvatar');
+        if (avatarEl) avatarEl.textContent = displayName.trim().charAt(0).toUpperCase() || 'A';
+    } catch (e) { console.warn('Greeting init error', e); }
     
     // Initialize currency selector
     const currencySelect = document.getElementById('currencySelect');
@@ -263,7 +280,94 @@ function updateDashboardStats() {
     if (elTeachers) elTeachers.textContent = totalTeachers.toLocaleString();
     if (elClasses) elClasses.textContent = totalClasses.toLocaleString();
 
+    const insightEl = document.getElementById('insightSummary');
+    if (insightEl) {
+        insightEl.textContent = totalStudents > 0
+            ? `${totalStudents.toLocaleString()} students across ${totalClasses} class${totalClasses === 1 ? '' : 'es'}, supported by ${totalTeachers} teacher${totalTeachers === 1 ? '' : 's'}.`
+            : 'No students enrolled yet — add your first student to get started.';
+    }
+
     animateStats();
+    renderDashboardCharts(students, classes);
+}
+
+// ===========================
+// DASHBOARD CHARTS
+// ===========================
+
+let _classEnrollmentChart = null;
+let _compositionChart = null;
+
+function renderDashboardCharts(students, classes) {
+    if (!window.Chart) return;
+
+    // --- Students per class (bar) ---
+    const canvas = document.getElementById('classEnrollmentChart');
+    const emptyNote = document.getElementById('classEnrollmentEmpty');
+    if (canvas) {
+        const counts = {};
+        (classes || []).forEach(c => { counts[c.name || c.id] = 0; });
+        (students || []).forEach(s => {
+            const cls = classes.find(c => c.id === s.class_id || c.id === s.classId || c.name === s.className);
+            const label = cls ? (cls.name || cls.id) : (s.className || 'Unassigned');
+            counts[label] = (counts[label] || 0) + 1;
+        });
+        const labels = Object.keys(counts);
+        const values = Object.values(counts);
+        const hasData = labels.length > 0 && values.some(v => v > 0);
+
+        canvas.style.display = hasData ? 'block' : 'none';
+        if (emptyNote) emptyNote.style.display = hasData ? 'none' : 'block';
+
+        if (hasData) {
+            if (_classEnrollmentChart) _classEnrollmentChart.destroy();
+            _classEnrollmentChart = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Students',
+                        data: values,
+                        backgroundColor: '#2563EB',
+                        borderRadius: 6,
+                        maxBarThickness: 40
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#EEF2F7' } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+    }
+
+    // --- School composition (donut: students vs teachers) ---
+    const compCanvas = document.getElementById('compositionChart');
+    if (compCanvas) {
+        if (_compositionChart) _compositionChart.destroy();
+        const totalStudents = (students || []).length;
+        const totalTeachers = (getData('teachers') || []).length;
+        _compositionChart = new Chart(compCanvas.getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels: ['Students', 'Teachers'],
+                datasets: [{
+                    data: [totalStudents, totalTeachers],
+                    backgroundColor: ['#2563EB', '#F5A623'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                cutout: '68%',
+                plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } }
+            }
+        });
+    }
 }
 
 // ===========================
@@ -296,7 +400,7 @@ function loadAttendanceNotifications() {
         div.className = 'notification-item';
         div.style.cssText = `
             padding: 1rem;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #2563EB;
             background: #f9f9f9;
             margin-bottom: 0.75rem;
             border-radius: 4px;
@@ -1696,36 +1800,35 @@ function renderActivities() {
     activities.forEach(a => {
         const item = document.createElement('div');
         item.className = 'activity-item';
-        item.style.display = 'flex';
         item.style.justifyContent = 'space-between';
-        item.style.alignItems = 'flex-start';
-        item.style.padding = '0.75rem';
-        item.style.borderBottom = '1px solid #eee';
-        
+
         const contentDiv = document.createElement('div');
         contentDiv.style.display = 'flex';
         contentDiv.style.flex = '1';
         contentDiv.style.gap = '0.75rem';
-        
+        contentDiv.style.minWidth = '0';
+
         const iconSpan = document.createElement('span');
         iconSpan.className = 'activity-icon';
-        iconSpan.style.fontSize = '1.5rem';
+        iconSpan.style.fontSize = '1rem';
         iconSpan.textContent = a.icon;
-        
+
         const detailsDiv = document.createElement('div');
         detailsDiv.className = 'activity-details';
         detailsDiv.style.flex = '1';
-        
+        detailsDiv.style.minWidth = '0';
+
         const textP = document.createElement('p');
         textP.className = 'activity-text';
-        textP.style.margin = '0 0 0.25rem 0';
+        textP.style.margin = '0 0 0.2rem 0';
+        textP.style.fontSize = '0.87rem';
         textP.textContent = a.text;
-        
+
         const timeP = document.createElement('p');
         timeP.className = 'activity-time';
         timeP.style.margin = '0';
-        timeP.style.fontSize = '0.85em';
-        timeP.style.color = '#999';
+        timeP.style.fontSize = '0.78rem';
+        timeP.style.color = 'var(--muted-text)';
         timeP.textContent = a.time;
         
         detailsDiv.appendChild(textP);
