@@ -357,7 +357,7 @@ function renderDashboardCharts(students, classes) {
                 labels: ['Students', 'Teachers'],
                 datasets: [{
                     data: [totalStudents, totalTeachers],
-                    backgroundColor: ['#EA580C', '#16345C'],
+                    backgroundColor: ['#EA580C', '#475569'],
                     borderWidth: 0
                 }]
             },
