@@ -328,7 +328,7 @@ function renderDashboardCharts(students, classes) {
                     datasets: [{
                         label: 'Students',
                         data: values,
-                        backgroundColor: '#2563EB',
+                        backgroundColor: '#EA580C',
                         borderRadius: 6,
                         maxBarThickness: 40
                     }]
@@ -357,7 +357,7 @@ function renderDashboardCharts(students, classes) {
                 labels: ['Students', 'Teachers'],
                 datasets: [{
                     data: [totalStudents, totalTeachers],
-                    backgroundColor: ['#2563EB', '#F5A623'],
+                    backgroundColor: ['#EA580C', '#16345C'],
                     borderWidth: 0
                 }]
             },
@@ -400,7 +400,7 @@ function loadAttendanceNotifications() {
         div.className = 'notification-item';
         div.style.cssText = `
             padding: 1rem;
-            border-left: 4px solid #2563EB;
+            border-left: 4px solid #EA580C;
             background: #f9f9f9;
             margin-bottom: 0.75rem;
             border-radius: 4px;
