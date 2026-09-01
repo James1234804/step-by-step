@@ -319,49 +319,60 @@ function updateDashboardStats() {
 // DASHBOARD CHARTS
 // ===========================
 
-let _classEnrollmentChart = null;
-let _compositionChart = null;
+let _feeCollectionChart = null;
+let _genderChart = null;
 
 function renderDashboardCharts(students, classes) {
     if (!window.Chart) return;
 
-    // --- Students per class (bar) ---
-    const canvas = document.getElementById('classEnrollmentChart');
-    const emptyNote = document.getElementById('classEnrollmentEmpty');
-    if (canvas) {
-        const counts = {};
-        (classes || []).forEach(c => { counts[c.name || c.id] = 0; });
-        (students || []).forEach(s => {
-            const cls = classes.find(c => c.id === s.class_id || c.id === s.classId || c.name === s.className);
-            const label = cls ? (cls.name || cls.id) : (s.className || 'Unassigned');
-            counts[label] = (counts[label] || 0) + 1;
+    // --- Fee Collection by month (line) — built from real payment dates ---
+    const feeCanvas = document.getElementById('feeCollectionChart');
+    const feeEmptyNote = document.getElementById('feeCollectionEmpty');
+    if (feeCanvas) {
+        const fees = getData('fees') || [];
+        const monthTotals = {}; // 'YYYY-MM' -> total
+        fees.forEach(f => {
+            if (!f.datePaid) return;
+            const parts = f.datePaid.split('/'); // MM/DD/YYYY
+            if (parts.length !== 3) return;
+            const key = parts[2] + '-' + parts[0].padStart(2, '0');
+            monthTotals[key] = (monthTotals[key] || 0) + (parseInt(f.amount) || 0);
         });
-        const labels = Object.keys(counts);
-        const values = Object.values(counts);
-        const hasData = labels.length > 0 && values.some(v => v > 0);
+        const sortedKeys = Object.keys(monthTotals).sort();
+        const hasData = sortedKeys.length > 0;
 
-        canvas.style.display = hasData ? 'block' : 'none';
-        if (emptyNote) emptyNote.style.display = hasData ? 'none' : 'block';
+        feeCanvas.style.display = hasData ? 'block' : 'none';
+        if (feeEmptyNote) feeEmptyNote.style.display = hasData ? 'none' : 'block';
 
         if (hasData) {
-            if (_classEnrollmentChart) _classEnrollmentChart.destroy();
-            _classEnrollmentChart = new Chart(canvas.getContext('2d'), {
-                type: 'bar',
+            const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            const labels = sortedKeys.map(k => {
+                const [y, m] = k.split('-');
+                return monthNames[parseInt(m) - 1] + ' ' + y;
+            });
+            const values = sortedKeys.map(k => monthTotals[k]);
+
+            if (_feeCollectionChart) _feeCollectionChart.destroy();
+            _feeCollectionChart = new Chart(feeCanvas.getContext('2d'), {
+                type: 'line',
                 data: {
                     labels,
                     datasets: [{
-                        label: 'Students',
+                        label: 'Collected',
                         data: values,
-                        backgroundColor: '#EA580C',
-                        borderRadius: 6,
-                        maxBarThickness: 40
+                        borderColor: '#EA580C',
+                        backgroundColor: 'rgba(234, 88, 12, 0.1)',
+                        fill: true,
+                        tension: 0.35,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#EA580C'
                     }]
                 },
                 options: {
                     responsive: true,
                     plugins: { legend: { display: false } },
                     scales: {
-                        y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#EEF2F7' } },
+                        y: { beginAtZero: true, ticks: { callback: v => formatCurrency(v.toString()) }, grid: { color: '#EEF2F7' } },
                         x: { grid: { display: false } }
                     }
                 }
@@ -369,28 +380,49 @@ function renderDashboardCharts(students, classes) {
         }
     }
 
-    // --- School composition (donut: students vs teachers) ---
-    const compCanvas = document.getElementById('compositionChart');
-    if (compCanvas) {
-        if (_compositionChart) _compositionChart.destroy();
-        const totalStudents = (students || []).length;
-        const totalTeachers = (getData('teachers') || []).length;
-        _compositionChart = new Chart(compCanvas.getContext('2d'), {
-            type: 'doughnut',
-            data: {
-                labels: ['Students', 'Teachers'],
-                datasets: [{
-                    data: [totalStudents, totalTeachers],
-                    backgroundColor: ['#EA580C', '#475569'],
-                    borderWidth: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                cutout: '68%',
-                plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } }
-            }
+    // --- Enrollment by Gender (donut) — built from real student records ---
+    const genderCanvas = document.getElementById('genderChart');
+    const genderEmptyNote = document.getElementById('genderChartEmpty');
+    if (genderCanvas) {
+        const counts = { Female: 0, Male: 0, Unspecified: 0 };
+        (students || []).forEach(s => {
+            if (s.gender === 'Female') counts.Female++;
+            else if (s.gender === 'Male') counts.Male++;
+            else counts.Unspecified++;
         });
+        const hasGenderData = counts.Female > 0 || counts.Male > 0;
+
+        genderCanvas.style.display = hasGenderData ? 'block' : 'none';
+        if (genderEmptyNote) genderEmptyNote.style.display = hasGenderData ? 'none' : 'block';
+
+        if (hasGenderData) {
+            const labels = ['Female', 'Male'];
+            const values = [counts.Female, counts.Male];
+            const colors = ['#EA580C', '#475569'];
+            if (counts.Unspecified > 0) {
+                labels.push('Unspecified');
+                values.push(counts.Unspecified);
+                colors.push('#CBD5E1');
+            }
+
+            if (_genderChart) _genderChart.destroy();
+            _genderChart = new Chart(genderCanvas.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: colors,
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    cutout: '68%',
+                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } }
+                }
+            });
+        }
     }
 }
 
@@ -1475,10 +1507,11 @@ document.addEventListener('submit', function(e) {
         e.preventDefault();
         const name = document.getElementById('studentNameInput').value.trim();
         const studentClass = document.getElementById('studentClassSelect').value;
+        const gender = document.getElementById('studentGenderSelect')?.value || '';
         if (!name || !studentClass) return showNotification('Please provide student name and class', 'warning');
         const classes = getData('classes') || [];
         if (!classes.find(c => c.name === studentClass)) return showNotification('Selected class does not exist', 'error');
-        addStudentToTable(name, studentClass);
+        addStudentToTable(name, studentClass, gender);
         closeStudentModal();
         showNotification('Student added successfully!', 'success');
     }
@@ -1490,7 +1523,7 @@ document.addEventListener('click', function(e) {
     if (modal.getAttribute('aria-hidden') === 'false' && e.target === modal) closeStudentModal();
 });
 
-function addStudentToTable(name, studentClass) {
+function addStudentToTable(name, studentClass, gender) {
     console.log('Adding student:', name);
     
     let students = getData('students') || [];
@@ -1505,6 +1538,7 @@ function addStudentToTable(name, studentClass) {
         id: nextId,
         name: name,
         class: studentClass,
+        gender: gender || '',
         password: nextId
     };
     students.push(newStudent);
