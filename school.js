@@ -2,7 +2,7 @@
 // DOM ELEMENTS
 // ===========================
 
-const navLinks = document.querySelectorAll('.nav-link');
+ 
 const menuItems = document.querySelectorAll('.menu-item');
 const contentSections = document.querySelectorAll('.content-section');
 
