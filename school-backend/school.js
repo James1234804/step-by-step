@@ -55,20 +55,37 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     }catch(e){console.warn('Error wiring logout or displaying user',e)}
     
-    // Wire notification bell button
+    // Wire notification bell + dropdown
     const notificationBell = document.getElementById('notificationBell');
-    if (notificationBell) {
-        notificationBell.addEventListener('click', () => {
-            const section = document.getElementById('dashboard-section');
-            if (section) {
-                navigateTo('dashboard');
-                setTimeout(() => {
-                    const notifContainer = document.getElementById('notificationsContainer');
-                    if (notifContainer) {
-                        notifContainer.scrollIntoView({ behavior: 'smooth' });
-                    }
-                }, 100);
+    const notificationDropdown = document.getElementById('notificationDropdown');
+    if (notificationBell && notificationDropdown) {
+        notificationBell.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = notificationDropdown.style.display === 'block';
+            notificationDropdown.style.display = isOpen ? 'none' : 'block';
+        });
+        document.addEventListener('click', (e) => {
+            if (notificationDropdown.style.display === 'block' &&
+                !notificationDropdown.contains(e.target) &&
+                e.target !== notificationBell && !notificationBell.contains(e.target)) {
+                notificationDropdown.style.display = 'none';
             }
+        });
+    }
+    const markAllReadBtn = document.getElementById('markAllReadBtn');
+    if (markAllReadBtn) {
+        markAllReadBtn.addEventListener('click', () => {
+            markAllNotificationsRead();
+        });
+    }
+    const clearNotificationsBtn = document.getElementById('clearNotificationsBtn');
+    if (clearNotificationsBtn) {
+        clearNotificationsBtn.addEventListener('click', () => {
+            saveData('activities', []);
+            saveData('attendanceNotifications', []);
+            window._activities = [];
+            renderActivities();
+            renderNotificationDropdown();
         });
     }
     
@@ -237,7 +254,7 @@ function loadAllData() {
     loadTimetablesFromStorage();
     populateTimetableClassSelect();
 
-    loadAttendanceNotifications();
+    renderNotificationDropdown();
 
     const ttSelect = document.getElementById('timetableClassSelect');
     if (ttSelect) {
@@ -447,106 +464,157 @@ function renderDashboardCharts(students, classes) {
 }
 
 // ===========================
-// ATTENDANCE NOTIFICATIONS
+// NOTIFICATIONS (unified: activities + live attendance)
 // ===========================
 
-function loadAttendanceNotifications() {
-    const notificationsContainer = document.getElementById('notificationsContainer');
-    if (!notificationsContainer) return;
-    
-    const notifications = getData('attendanceNotifications') || [];
-    
-    if (!Array.isArray(notifications) || notifications.length === 0) {
-        notificationsContainer.innerHTML = '<p style="color: #999; text-align: center; padding: 2rem;">No attendance notifications yet</p>';
-        updateNotificationBadge(0);
-        const clearBtn = document.getElementById('clearNotificationsBtn');
-        if (clearBtn) {
-            clearBtn.addEventListener('click', () => {
-                saveData('attendanceNotifications', []);
-                loadAttendanceNotifications();
-            });
-        }
-        return;
-    }
-    
-    notificationsContainer.innerHTML = '';
-    
-    notifications.forEach(notification => {
-        const div = document.createElement('div');
-        div.className = 'notification-item';
-        div.style.cssText = `
-            padding: 1rem;
-            border-left: 4px solid #EA580C;
-            background: #f9f9f9;
-            margin-bottom: 0.75rem;
-            border-radius: 4px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        `;
-        
-        const dayName = getDayNameFromDateStr(notification.date);
-        const timeStr = new Date(notification.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        
-        div.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                <div style="flex: 1;">
-                    <h4 style="margin: 0 0 0.5rem 0; color: #333;">📋 Attendance Marked - <strong>${notification.class}</strong></h4>
-                    <p style="margin: 0.25rem 0; color: #666; font-size: 0.95em;">
-                        <strong>Teacher:</strong> ${notification.teacher}
-                    </p>
-                    <p style="margin: 0.25rem 0; color: #666; font-size: 0.95em;">
-                        <strong>Present:</strong> <span style="color: #43e97b; font-weight: 600;">${notification.presentCount}/${notification.totalCount}</span> students
-                    </p>
-                    <p style="margin: 0.5rem 0 0 0; color: #999; font-size: 0.85em;">
-                        ${dayName}, ${notification.date} at <strong>${timeStr}</strong>
-                    </p>
-                </div>
-                <button class="btn-small" onclick="removeNotification(this, '${notification.id}')" style="margin-left: 0.5rem; padding: 4px 8px; background: #eee; border: none; border-radius: 4px; cursor: pointer;">✕</button>
-            </div>
-        `;
-        
-        notificationsContainer.appendChild(div);
-    });
-    
-    updateNotificationBadge(notifications.length);
-    
-    const clearBtn = document.getElementById('clearNotificationsBtn');
-    if (clearBtn) {
-        clearBtn.addEventListener('click', () => {
-            saveData('attendanceNotifications', []);
-            loadAttendanceNotifications();
-        });
+function getReadNotificationIds() {
+    try {
+        return new Set(JSON.parse(localStorage.getItem('notif_read_ids') || '[]'));
+    } catch (e) {
+        return new Set();
     }
 }
 
-function getDayNameFromDateStr(dateStr) {
-    const d = new Date(dateStr + 'T00:00:00');
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    return days[d.getDay()];
+function saveReadNotificationIds(idSet) {
+    localStorage.setItem('notif_read_ids', JSON.stringify(Array.from(idSet)));
+}
+
+function getAllNotifications() {
+    const readIds = getReadNotificationIds();
+
+    const activityItems = (getData('activities') || []).map(a => ({
+        id: 'act-' + a.id,
+        icon: a.icon || '🔔',
+        text: a.text,
+        timestamp: a.timestamp || (a.time ? new Date(a.time).getTime() : Date.now()),
+        timeLabel: a.time,
+        read: readIds.has('act-' + a.id)
+    }));
+
+    const attendanceItems = (getData('attendanceNotifications') || []).map(n => ({
+        id: 'att-' + n.id,
+        icon: '📋',
+        text: `Attendance marked — ${n.class}: ${n.presentCount}/${n.totalCount} present`,
+        timestamp: n.timestamp || Date.now(),
+        timeLabel: null,
+        read: readIds.has('att-' + n.id)
+    }));
+
+    return [...activityItems, ...attendanceItems].sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function relativeTimeFromNow(timestamp) {
+    const diffMs = Date.now() - timestamp;
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return mins + ' min ago';
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + (hrs === 1 ? ' hour ago' : ' hours ago');
+    const days = Math.floor(hrs / 24);
+    return days + (days === 1 ? ' day ago' : ' days ago');
+}
+
+let _lastNotifCount = null;
+
+function renderNotificationDropdown() {
+    const list = document.getElementById('notificationDropdownList');
+    const notifications = getAllNotifications();
+    const unreadCount = notifications.filter(n => !n.read).length;
+
+    updateNotificationBadge(unreadCount);
+
+    // Play a sound only when unread count goes UP since the last render
+    // (not on initial page load, and not when items are marked read).
+    if (_lastNotifCount !== null && unreadCount > _lastNotifCount) {
+        playNotificationSound();
+    }
+    _lastNotifCount = unreadCount;
+
+    if (!list) return;
+
+    if (notifications.length === 0) {
+        list.innerHTML = '<p class="notification-dropdown-empty">No notifications yet</p>';
+        return;
+    }
+
+    list.innerHTML = '';
+    notifications.slice(0, 20).forEach(n => {
+        const item = document.createElement('div');
+        item.className = 'notif-item' + (n.read ? '' : ' unread');
+
+        const dot = document.createElement('span');
+        dot.className = 'notif-dot';
+
+        const icon = document.createElement('span');
+        icon.className = 'notif-icon';
+        icon.textContent = n.icon;
+
+        const body = document.createElement('div');
+        body.className = 'notif-body';
+
+        const text = document.createElement('p');
+        text.className = 'notif-text';
+        text.textContent = n.text;
+
+        const time = document.createElement('p');
+        time.className = 'notif-time';
+        time.textContent = relativeTimeFromNow(n.timestamp);
+
+        body.appendChild(text);
+        body.appendChild(time);
+        item.appendChild(dot);
+        item.appendChild(icon);
+        item.appendChild(body);
+        list.appendChild(item);
+    });
+}
+
+function markAllNotificationsRead() {
+    const notifications = getAllNotifications();
+    const readIds = getReadNotificationIds();
+    notifications.forEach(n => readIds.add(n.id));
+    saveReadNotificationIds(readIds);
+    renderNotificationDropdown();
 }
 
 function updateNotificationBadge(count) {
     const badge = document.getElementById('notificationCount');
     if (!badge) return;
-    
+
     if (count > 0) {
-        badge.textContent = count;
+        badge.textContent = count > 99 ? '99+' : count;
         badge.style.display = 'flex';
     } else {
         badge.style.display = 'none';
     }
 }
 
-function removeNotification(btn, notificationId) {
-    let notifications = getData('attendanceNotifications') || [];
-    notifications = notifications.filter(n => n.id !== notificationId);
-    saveData('attendanceNotifications', notifications);
-    loadAttendanceNotifications();
+function playNotificationSound() {
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.setValueAtTime(1046.5, ctx.currentTime + 0.09);
+        gain.gain.setValueAtTime(0.001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.28);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+    } catch (e) {
+        console.warn('Notification sound unavailable', e);
+    }
 }
 
 window.addEventListener('storage', (e) => {
-    if (e.key === 'attendanceNotifications') {
-        console.log('Attendance notifications updated from another tab');
-        loadAttendanceNotifications();
+    if (e.key === 'attendanceNotifications' || e.key === 'activities') {
+        console.log('Notifications updated from another tab');
+        renderNotificationDropdown();
     }
 });
 
@@ -1850,11 +1918,12 @@ function showNotification(message, type = 'info') {
 function addActivity(iconEmoji, text) {
     if (!window._activities || !Array.isArray(window._activities)) window._activities = [];
     const time = new Date().toLocaleString();
-    const entry = { id: String(Date.now()), icon: iconEmoji, text: text, time };
+    const entry = { id: String(Date.now()), icon: iconEmoji, text: text, time, timestamp: Date.now() };
     window._activities.unshift(entry);
     if (window._activities.length > 8) window._activities = window._activities.slice(0, 8);
     saveData('activities', window._activities);
     renderActivities();
+    renderNotificationDropdown();
 }
 
 function renderActivities() {
