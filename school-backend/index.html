@@ -191,6 +191,21 @@
 
                     <div class="card">
                         <div class="card-header">
+                            <h2><span data-lucide="credit-card"></span>Recent Payments</h2>
+                            <span class="view-more" style="cursor:pointer; font-size: 0.82rem;" onclick="navigateTo('fees')">View All</span>
+                        </div>
+                        <div id="recentPaymentsList" class="activity-list"></div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><span data-lucide="triangle-alert"></span>Alerts &amp; Notifications</h2>
+                        </div>
+                        <div id="feeAlertsList" class="activity-list"></div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
                             <h2><span data-lucide="zap"></span>Quick Actions</h2>
                         </div>
                         <div class="action-buttons">
@@ -504,47 +519,7 @@
                                 <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody id="teachersTableBody">
-                            <tr>
-                                <td>T001</td>
-                                <td>Mr. Rahman</td>
-                                <td>Mathematics</td>
-                                <td>rahman@school.com</td>
-                                <td>+880-1234-567890</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>
-                                    <button class="btn-small btn-info">View</button>
-                                    <button class="btn-small btn-warning">Edit</button>
-                                    <button class="btn-small btn-danger">Delete</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>T002</td>
-                                <td>Ms. Fatima</td>
-                                <td>English</td>
-                                <td>fatima@school.com</td>
-                                <td>+880-1234-567891</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>
-                                    <button class="btn-small btn-info">View</button>
-                                    <button class="btn-small btn-warning">Edit</button>
-                                    <button class="btn-small btn-danger">Delete</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>T003</td>
-                                <td>Mr. Ahmed</td>
-                                <td>Science</td>
-                                <td>ahmed@school.com</td>
-                                <td>+880-1234-567892</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>
-                                    <button class="btn-small btn-info">View</button>
-                                    <button class="btn-small btn-warning">Edit</button>
-                                    <button class="btn-small btn-danger">Delete</button>
-                                </td>
-                            </tr>
-                        </tbody>
+                        <tbody id="teachersTableBody"></tbody>
                     </table>
                 </div>
             </section>
@@ -557,54 +532,60 @@
                 </div>
 
                 <!-- Info box -->
-                <div style="background: #e8f5e9; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; border-left: 4px solid #43e97b;">
-                    <p><strong>💡 How it works:</strong> Set the total fees per student, then record payments as they come in. The system tracks each payment separately so you have a full history.</p>
+                <div class="info-box">
+                    <strong>How it works:</strong> Set the total fees per student, then record payments as they come in. The system tracks each payment separately so you have a full history.
                 </div>
 
                 <!-- Set Total Fees -->
-                <div class="card" style="margin-bottom: 1.5rem; padding: 1.2rem;">
-                    <h3 style="margin: 0 0 0.75rem 0;">💰 Set Total Fees Per Student</h3>
-                    <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
-                        <input type="number" id="totalFeesInput" placeholder="e.g. 700" style="padding: 8px 12px; border: 1.5px solid #ddd; border-radius: 8px; width: 180px; font-size: 1rem;">
+                <div class="card" style="padding: 1.2rem;">
+                    <h3 style="margin: 0 0 0.9rem 0; font-size: 1rem;">Set Total Fees Per Student</h3>
+                    <div class="fee-setup-row">
+                        <input type="number" id="totalFeesInput" placeholder="e.g. 700">
                         <button class="btn btn-primary" onclick="saveTotalFees()">Save</button>
-                        <span id="currentTotalFees" style="color: #555; font-weight: 600; font-size: 1rem;"></span>
+                        <span id="currentTotalFees" class="fee-setup-current"></span>
                     </div>
                 </div>
 
                 <!-- Fee Summary Cards -->
-                <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
-
-                    <div style="flex: 1; min-width: 160px; background: #f0fff4; padding: 1.2rem; border-radius: 12px; text-align: center; box-shadow: 0 1px 6px rgba(0,0,0,0.07);">
-                        <div style="font-size: 0.8rem; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Fees Collected</div>
-                        <div id="totalFeesCollected" style="font-size: 2rem; font-weight: 700; color: #43e97b;">$0</div>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon tone-green"><span data-lucide="wallet"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Fees Collected</h3>
+                            <p id="totalFeesCollected" class="stat-value">$0</p>
+                        </div>
                     </div>
-
-                    <div style="flex: 1; min-width: 160px; background: #fff8f0; padding: 1.2rem; border-radius: 12px; text-align: center; box-shadow: 0 1px 6px rgba(0,0,0,0.07);">
-                        <div style="font-size: 0.8rem; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Outstanding</div>
-                        <div id="totalFeesPending" style="font-size: 2rem; font-weight: 700; color: #f5576c;">$0</div>
+                    <div class="stat-card">
+                        <div class="stat-icon tone-red"><span data-lucide="alert-circle"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Outstanding</h3>
+                            <p id="totalFeesPending" class="stat-value">$0</p>
+                        </div>
                     </div>
-
-                    <div style="flex: 1; min-width: 160px; background: #f0f4ff; padding: 1.2rem; border-radius: 12px; text-align: center; box-shadow: 0 1px 6px rgba(0,0,0,0.07);">
-                        <div style="font-size: 0.8rem; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Collection Rate</div>
-                        <div id="feeCollectionRate" style="font-size: 2rem; font-weight: 700; color: #667eea;">0%</div>
-                        <div style="font-size: 0.75rem; color: #999; margin-top: 2px;">max 100%</div>
+                    <div class="stat-card">
+                        <div class="stat-icon tone-blue"><span data-lucide="percent"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Collection Rate</h3>
+                            <p id="feeCollectionRate" class="stat-value">0%</p>
+                        </div>
                     </div>
-
-                    <div style="flex: 1; min-width: 160px; background: #fafafa; padding: 1.2rem; border-radius: 12px; text-align: center; box-shadow: 0 1px 6px rgba(0,0,0,0.07);">
-                        <div style="font-size: 0.8rem; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Fully Paid</div>
-                        <div id="fullyPaidCount" style="font-size: 1.1rem; font-weight: 700; color: #333; margin-top: 0.5rem;">0 / 0 students</div>
+                    <div class="stat-card">
+                        <div class="stat-icon tone-navy"><span data-lucide="check-circle"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Fully Paid</h3>
+                            <p id="fullyPaidCount" class="stat-value stat-value-text">0 / 0 students</p>
+                        </div>
                     </div>
-
                 </div>
 
                 <!-- Collection Progress Bar -->
-                <div style="margin-bottom: 1.5rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <span style="font-size: 0.9rem; font-weight: 600; color: #555;">Fee Collection Progress</span>
-                        <span id="feeCollectionRateBar" style="font-size: 0.9rem; font-weight: 700; color: #667eea;">0%</span>
+                <div class="card progress-card">
+                    <div class="progress-label-row">
+                        <span>Fee Collection Progress</span>
+                        <span id="feeCollectionRateBar">0%</span>
                     </div>
-                    <div style="background: #e9ecef; border-radius: 20px; height: 14px; overflow: hidden;">
-                        <div id="feeCollectionBar" style="height: 100%; width: 0%; background: #f5576c; border-radius: 20px; transition: width 0.8s ease;"></div>
+                    <div class="progress-track">
+                        <div id="feeCollectionBar" class="progress-fill"></div>
                     </div>
                 </div>
 
@@ -679,72 +660,70 @@
             </div>
 
             <!-- Student Info -->
-            <div style="background: #f0f4ff; border-radius: 10px; padding: 1rem; margin-bottom: 1.2rem;">
-                <div style="font-size: 1.1rem; font-weight: 700; color: #1e293b; margin-bottom: 4px;" id="paymentModalStudentName">—</div>
-                <div style="font-size: 0.9rem; color: #64748b;" id="paymentModalClass">—</div>
+            <div class="payment-student-info">
+                <div class="payment-student-name" id="paymentModalStudentName">—</div>
+                <div class="payment-student-class" id="paymentModalClass">—</div>
             </div>
 
             <!-- Balance Summary -->
-            <div style="display: flex; gap: 0.75rem; margin-bottom: 1.2rem; flex-wrap: wrap;">
-                <div style="flex: 1; min-width: 100px; background: #f8fafc; border-radius: 8px; padding: 0.75rem; text-align: center;">
-                    <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 2px;">Total Due</div>
-                    <div id="paymentModalTotalDue" style="font-size: 1.3rem; font-weight: 700; color: #334155;">$0</div>
+            <div class="payment-balance-row">
+                <div class="payment-balance-box">
+                    <div class="payment-balance-label">Total Due</div>
+                    <div id="paymentModalTotalDue" class="payment-balance-value">$0</div>
                 </div>
-                <div style="flex: 1; min-width: 100px; background: #f0fff4; border-radius: 8px; padding: 0.75rem; text-align: center;">
-                    <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 2px;">Paid So Far</div>
-                    <div id="paymentModalTotalPaid" style="font-size: 1.3rem; font-weight: 700; color: #43e97b;">$0</div>
+                <div class="payment-balance-box">
+                    <div class="payment-balance-label">Paid So Far</div>
+                    <div id="paymentModalTotalPaid" class="payment-balance-value tone-paid">$0</div>
                 </div>
-                <div style="flex: 1; min-width: 100px; background: #fff8f0; border-radius: 8px; padding: 0.75rem; text-align: center;">
-                    <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 2px;">Balance</div>
-                    <div id="paymentModalBalance" style="font-size: 1.3rem; font-weight: 700; color: #f5576c;">$0</div>
+                <div class="payment-balance-box">
+                    <div class="payment-balance-label">Balance</div>
+                    <div id="paymentModalBalance" class="payment-balance-value tone-due">$0</div>
                 </div>
             </div>
 
             <!-- Payment Form -->
             <div class="form-row">
-                <label style="font-weight: 600; font-size: 0.9rem; color: #475569;">Payment Amount ($)</label>
-                <input type="number" id="paymentModalAmount" min="1" placeholder="Enter amount"
-                    style="width: 100%; padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 8px; font-size: 1rem; box-sizing: border-box; margin-top: 4px;">
+                <label>Payment Amount ($)</label>
+                <input type="number" id="paymentModalAmount" min="1" placeholder="Enter amount">
             </div>
 
-            <div style="display: flex; gap: 0.75rem; margin-top: 0.75rem;">
-                <div style="flex: 1;">
-                    <label style="font-weight: 600; font-size: 0.9rem; color: #475569;">Term</label>
-                    <select id="paymentModalTerm" style="width: 100%; padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 8px; font-size: 0.95rem; margin-top: 4px;">
+            <div class="payment-form-split">
+                <div class="form-row">
+                    <label>Term</label>
+                    <select id="paymentModalTerm">
                         <option value="">Select Term</option>
                         <option value="Term 1">Term 1</option>
                         <option value="Term 2">Term 2</option>
                         <option value="Term 3">Term 3</option>
                     </select>
                 </div>
-                <div style="flex: 1;">
-                    <label style="font-weight: 600; font-size: 0.9rem; color: #475569;">Year</label>
-                    <input type="number" id="paymentModalYear" placeholder="e.g. 2026"
-                        style="width: 100%; padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 8px; font-size: 0.95rem; box-sizing: border-box; margin-top: 4px;">
+                <div class="form-row">
+                    <label>Year</label>
+                    <input type="number" id="paymentModalYear" placeholder="e.g. 2026">
                 </div>
             </div>
 
             <!-- Action Buttons -->
-            <div style="display: flex; gap: 0.75rem; margin-top: 1.2rem;">
-                <button class="btn btn-primary" onclick="submitPaymentModal()" style="flex: 1; padding: 11px;">
-                    ✅ Record Payment
+            <div class="form-actions" style="margin-top: 1.2rem;">
+                <button class="btn btn-primary" onclick="submitPaymentModal()" style="flex: 1;">
+                    Record Payment
                 </button>
-                <button class="btn btn-secondary" onclick="closePaymentModal()" style="padding: 11px 18px;">
+                <button class="btn btn-secondary" onclick="closePaymentModal()">
                     Cancel
                 </button>
             </div>
 
             <!-- Payment History inside modal -->
-            <div style="margin-top: 1.5rem;">
-                <h4 style="margin: 0 0 0.6rem 0; font-size: 0.95rem; color: #475569;">📋 Payment History</h4>
-                <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
-                    <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem;">
+            <div>
+                <h4 class="payment-history-heading">Payment History</h4>
+                <div class="payment-history-wrap">
+                    <table class="payment-history-table">
                         <thead>
-                            <tr style="background: #f8fafc;">
-                                <th style="padding: 8px 10px; text-align: left; color: #64748b; font-weight: 600;">Amount</th>
-                                <th style="padding: 8px 10px; text-align: left; color: #64748b; font-weight: 600;">Term</th>
-                                <th style="padding: 8px 10px; text-align: left; color: #64748b; font-weight: 600;">Year</th>
-                                <th style="padding: 8px 10px; text-align: left; color: #64748b; font-weight: 600;">Date</th>
+                            <tr>
+                                <th>Amount</th>
+                                <th>Term</th>
+                                <th>Year</th>
+                                <th>Date</th>
                             </tr>
                         </thead>
                         <tbody id="paymentModalHistory"></tbody>
