@@ -330,6 +330,127 @@ function updateDashboardStats() {
 
     animateStats();
     renderDashboardCharts(students, classes);
+    renderRecentPayments(fees);
+    renderFeeAlerts(students, fees);
+}
+
+function renderRecentPayments(fees) {
+    const list = document.getElementById('recentPaymentsList');
+    if (!list) return;
+
+    const feesData = fees || getData('fees') || [];
+    if (feesData.length === 0) {
+        list.innerHTML = '<p style="color: var(--muted-text); text-align: center; padding: 1.5rem;">No payments recorded yet</p>';
+        return;
+    }
+
+    const sorted = [...feesData].sort((a, b) => {
+        const tsA = parseInt((a.id || '').replace('F', '')) || 0;
+        const tsB = parseInt((b.id || '').replace('F', '')) || 0;
+        return tsB - tsA;
+    }).slice(0, 6);
+
+    list.innerHTML = '';
+    sorted.forEach(f => {
+        const item = document.createElement('div');
+        item.className = 'activity-item';
+
+        const icon = document.createElement('span');
+        icon.className = 'activity-icon';
+        icon.textContent = '💰';
+
+        const details = document.createElement('div');
+        details.className = 'activity-details';
+        details.style.flex = '1';
+        details.style.minWidth = '0';
+
+        const text = document.createElement('p');
+        text.className = 'activity-text';
+        text.style.margin = '0 0 0.2rem 0';
+        text.style.fontSize = '0.87rem';
+        text.textContent = `${f.studentName || 'Unknown student'} — ${f.class || ''}`;
+
+        const time = document.createElement('p');
+        time.className = 'activity-time';
+        time.style.margin = '0';
+        time.style.fontSize = '0.78rem';
+        time.style.color = 'var(--muted-text)';
+        time.textContent = `${formatCurrency((f.amount || 0).toString())} • ${f.term || ''} ${f.year || ''} • ${f.datePaid || ''}`;
+
+        details.appendChild(text);
+        details.appendChild(time);
+        item.appendChild(icon);
+        item.appendChild(details);
+        list.appendChild(item);
+    });
+}
+
+function renderFeeAlerts(students, fees) {
+    const list = document.getElementById('feeAlertsList');
+    if (!list) return;
+
+    const studentsData = students || getData('students') || [];
+    const feesData = fees || getData('fees') || [];
+    const totalDue = parseInt(localStorage.getItem('totalFeesDue') || '0');
+
+    if (totalDue === 0 || studentsData.length === 0) {
+        list.innerHTML = '<p style="color: var(--muted-text); text-align: center; padding: 1.5rem;">Set total fees per student to see alerts here</p>';
+        return;
+    }
+
+    let partialCount = 0;
+    let pendingCount = 0;
+    let totalCollected = 0;
+
+    studentsData.forEach(s => {
+        const paid = feesData.filter(f => f.studentId === s.id).reduce((sum, f) => sum + (parseInt(f.amount) || 0), 0);
+        totalCollected += paid;
+        if (paid === 0) pendingCount++;
+        else if (paid < totalDue) partialCount++;
+    });
+
+    const totalExpected = totalDue * studentsData.length;
+    const outstanding = Math.max(0, totalExpected - totalCollected);
+
+    const alerts = [];
+    if (outstanding > 0) {
+        alerts.push({ icon: '⚠️', text: `${formatCurrency(outstanding.toString())} in outstanding fees across the school` });
+    }
+    if (partialCount > 0) {
+        alerts.push({ icon: 'ℹ️', text: `${partialCount} student${partialCount === 1 ? '' : 's'} with partial payments` });
+    }
+    if (pendingCount > 0) {
+        alerts.push({ icon: '🔴', text: `${pendingCount} student${pendingCount === 1 ? '' : 's'} with no payments recorded yet` });
+    }
+    if (alerts.length === 0) {
+        alerts.push({ icon: '✅', text: 'All students are fully paid up. Nice work!' });
+    }
+
+    list.innerHTML = '';
+    alerts.forEach(a => {
+        const item = document.createElement('div');
+        item.className = 'activity-item';
+
+        const icon = document.createElement('span');
+        icon.className = 'activity-icon';
+        icon.textContent = a.icon;
+
+        const details = document.createElement('div');
+        details.className = 'activity-details';
+        details.style.flex = '1';
+        details.style.minWidth = '0';
+
+        const text = document.createElement('p');
+        text.className = 'activity-text';
+        text.style.margin = '0';
+        text.style.fontSize = '0.87rem';
+        text.textContent = a.text;
+
+        details.appendChild(text);
+        item.appendChild(icon);
+        item.appendChild(details);
+        list.appendChild(item);
+    });
 }
 
 // ===========================
@@ -765,7 +886,7 @@ function renderClasses() {
         summary.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:1rem;">
                 <div style="display:flex; gap:0.75rem; align-items:center;">
-                    <h3 style="margin:0; color: #667eea; font-size:1.05rem;">Form ${formLevel}</h3>
+                    <h3 style="margin:0; color: #EA580C; font-size:1.05rem;">Form ${formLevel}</h3>
                     <span style="color:#666; font-size:0.95rem;">(${classesForForm.length} classes)</span>
                 </div>
                 <div style="color:#999; font-size:0.95rem;">Click to expand</div>
@@ -1497,15 +1618,16 @@ function loadStudentsFromStorage() {
         return;
     }
 
+    tableBody.innerHTML = '';
+
     if (students && Array.isArray(students) && students.length > 0) {
         console.log('✓ Found ' + students.length + ' students in storage');
-        tableBody.innerHTML = '';
-        
         students.forEach(student => {
             addStudentRowToTable(student, tableBody);
         });
     } else {
         console.log('No students in storage');
+        tableBody.innerHTML = '<tr class="table-empty-row"><td colspan="4">No students added yet.</td></tr>';
     }
 }
 
@@ -1519,15 +1641,16 @@ function loadTeachersFromStorage() {
         return;
     }
 
+    tableBody.innerHTML = '';
+
     if (teachers && Array.isArray(teachers) && teachers.length > 0) {
         console.log('✓ Found ' + teachers.length + ' teachers in storage');
-        tableBody.innerHTML = '';
-        
         teachers.forEach(teacher => {
             addTeacherRowToTable(teacher, tableBody);
         });
     } else {
         console.log('No teachers in storage');
+        tableBody.innerHTML = '<tr class="table-empty-row"><td colspan="7">No teachers added yet.</td></tr>';
     }
 }
 
@@ -1659,6 +1782,8 @@ function addStudentToTable(name, studentClass, gender) {
     
     if (saveData('students', students)) {
         const tableBody = document.getElementById('studentsTableBody');
+        const emptyRow = tableBody.querySelector('.table-empty-row');
+        if (emptyRow) emptyRow.remove();
         addStudentRowToTable(newStudent, tableBody);
         console.log('✓ Student added successfully');
         loadClassesFromStorage();
@@ -1692,7 +1817,12 @@ function deleteStudentRecord(button, studentId) {
         
         if (saveData('students', students) && saveData('fees', fees) && saveData('parentContacts', contacts) && saveData('attendanceRecords', attendanceLegacy) && saveData('attendance', attendanceTeacher)) {
             button.closest('tr').remove();
-            
+
+            const tableBody = document.getElementById('studentsTableBody');
+            if (tableBody && tableBody.children.length === 0) {
+                tableBody.innerHTML = '<tr class="table-empty-row"><td colspan="4">No students added yet.</td></tr>';
+            }
+
             loadFeesFromStorage();
             updateFeeSummary();
             loadClassesFromStorage();
@@ -1750,6 +1880,8 @@ function addTeacherToTable(name, department, email, phone) {
     
     if (saveData('teachers', teachers)) {
         const tableBody = document.getElementById('teachersTableBody');
+        const emptyRow = tableBody.querySelector('.table-empty-row');
+        if (emptyRow) emptyRow.remove();
         addTeacherRowToTable(newTeacher, tableBody);
         console.log('✓ Teacher added successfully');
         updateDashboardStats();
@@ -1772,6 +1904,10 @@ function deleteTeacherRecord(button, teacherId) {
         
         if (saveData('teachers', teachers)) {
             button.closest('tr').remove();
+            const tableBody = document.getElementById('teachersTableBody');
+            if (tableBody && tableBody.children.length === 0) {
+                tableBody.innerHTML = '<tr class="table-empty-row"><td colspan="7">No teachers added yet.</td></tr>';
+            }
             showNotification('Teacher deleted successfully!', 'success');
             console.log('✓ Teacher deleted');
             updateDashboardStats();
@@ -1851,6 +1987,7 @@ function filterStudents() {
     const rows = tableBody.querySelectorAll('tr');
 
     rows.forEach(row => {
+        if (row.classList.contains('table-empty-row')) return;
         const name = row.children[1].textContent.toLowerCase();
         const className = row.children[2].textContent;
 
@@ -1868,6 +2005,7 @@ function filterTeachers() {
     const rows = tableBody.querySelectorAll('tr');
 
     rows.forEach(row => {
+        if (row.classList.contains('table-empty-row')) return;
         const name = row.children[1].textContent.toLowerCase();
         const department = row.children[2].textContent;
 
@@ -1917,10 +2055,10 @@ function showNotification(message, type = 'info') {
     `;
 
     const colors = {
-        success: { bg: '#43e97b', text: 'white' },
-        error: { bg: '#f5576c', text: 'white' },
-        warning: { bg: '#ffa502', text: 'white' },
-        info: { bg: '#4facfe', text: 'white' }
+        success: { bg: '#16A34A', text: 'white' },
+        error: { bg: '#DC2626', text: 'white' },
+        warning: { bg: '#EAB308', text: 'white' },
+        info: { bg: '#475569', text: 'white' }
     };
 
     const color = colors[type] || colors.info;
@@ -2249,6 +2387,7 @@ function editStudentFees(studentId) {
     if (saveData('fees', fees)) {
         loadFeesFromStorage();
         updateFeeSummary();
+        updateDashboardStats();
         addActivity('✏️', `Removed $${targetPayment.amount} payment for ${student.name}`);
         showNotification(`Payment of $${targetPayment.amount} removed for ${student.name}.`, 'success');
     } else {
@@ -2330,6 +2469,7 @@ function markFeePaid(student, amount, term, year) {
     if (saveData('fees', fees)) {
         loadFeesFromStorage();
         updateFeeSummary();
+        updateDashboardStats();
         const balance = totalDue - totalPaidAfter;
         const msg = balance <= 0
             ? `✅ Fully paid! ${student.name} has paid all fees.`
@@ -2435,9 +2575,9 @@ function updateFeeSummary() {
     if (progressBar) {
         progressBar.style.transition = 'width 0.8s ease';
         progressBar.style.width = collectionRate + '%';
-        if (collectionRate >= 75) progressBar.style.background = '#43e97b';
-        else if (collectionRate >= 40) progressBar.style.background = '#ffa502';
-        else progressBar.style.background = '#f5576c';
+        if (collectionRate >= 75) progressBar.style.background = '#16A34A';
+        else if (collectionRate >= 40) progressBar.style.background = '#EAB308';
+        else progressBar.style.background = '#DC2626';
     }
     if (progressLabel) progressLabel.textContent = collectionRate + '%';
 
@@ -2689,7 +2829,7 @@ function openPaymentModal(studentId) {
     document.getElementById('paymentModalTotalDue').textContent = formatCurrency(totalDue.toString());
     document.getElementById('paymentModalTotalPaid').textContent = formatCurrency(totalPaid.toString());
     document.getElementById('paymentModalBalance').textContent = formatCurrency(balance.toString());
-    document.getElementById('paymentModalBalance').style.color = balance <= 0 ? '#43e97b' : '#f5576c';
+    document.getElementById('paymentModalBalance').style.color = balance <= 0 ? '#16A34A' : '#DC2626';
 
     // Suggest the remaining balance as default amount
     const amountInput = document.getElementById('paymentModalAmount');
@@ -2832,7 +2972,7 @@ function printTable(tableId) {
     printWindow.document.write('<html><head><title>Print</title>');
     printWindow.document.write('<style>table { border-collapse: collapse; width: 100%; }');
     printWindow.document.write('th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }');
-    printWindow.document.write('th { background-color: #667eea; color: white; }</style>');
+    printWindow.document.write('th { background-color: #EA580C; color: white; }</style>');
     printWindow.document.write('</head><body>');
     printWindow.document.write(table.outerHTML);
     printWindow.document.write('</body></html>');
