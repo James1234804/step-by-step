@@ -18,16 +18,11 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     // Greeting + date
     try {
-        const hour = new Date().getHours();
-        const greetWord = hour < 12 ? 'Good morning' : (hour < 17 ? 'Good afternoon' : 'Good evening');
         const currentUserForGreeting = getData('currentUser');
         const displayName = (currentUserForGreeting && (currentUserForGreeting.name || currentUserForGreeting.username)) || 'Admin';
-        const greetEl = document.getElementById('dashGreeting');
-        if (greetEl) greetEl.textContent = `${greetWord}, ${displayName.split(' ')[0]}`;
-        const dateEl = document.getElementById('dashDateNote');
-        if (dateEl) dateEl.textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
         const avatarEl = document.getElementById('navAvatar');
         if (avatarEl) avatarEl.textContent = displayName.trim().charAt(0).toUpperCase() || 'A';
+        startLiveClock(displayName);
     } catch (e) { console.warn('Greeting init error', e); }
     
     // Initialize currency selector
@@ -280,6 +275,35 @@ function loadAllData() {
 // ===========================
 // DASHBOARD STATS
 // ===========================
+
+// ===========================
+// LIVE CLOCK
+// ===========================
+
+function startLiveClock(displayName) {
+    const greetEl = document.getElementById('dashGreeting');
+    const dateEl = document.getElementById('dashDateNote');
+    const timeEl = document.getElementById('dashLiveClock');
+
+    function tick() {
+        const now = new Date();
+
+        if (timeEl) {
+            timeEl.textContent = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+        if (dateEl) {
+            dateEl.textContent = now.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        }
+        if (greetEl) {
+            const hour = now.getHours();
+            const greetWord = hour < 12 ? 'Good morning' : (hour < 17 ? 'Good afternoon' : 'Good evening');
+            greetEl.textContent = `${greetWord}, ${(displayName || 'Admin').split(' ')[0]}`;
+        }
+    }
+
+    tick();
+    setInterval(tick, 1000);
+}
 
 function updateDashboardStats() {
     const students = getData('students') || [];
