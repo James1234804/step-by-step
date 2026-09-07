@@ -311,47 +311,51 @@ function updateDashboardStats() {
 
     // School Mean Score — average marks across all recorded grades
     const marksList = grades.map(g => parseFloat(g.marks)).filter(m => !isNaN(m));
+    let meanScoreValue = null;
     const elMean = document.getElementById('schoolMeanStat');
-    if (elMean) {
-        if (marksList.length > 0) {
-            const mean = marksList.reduce((a, b) => a + b, 0) / marksList.length;
-            elMean.textContent = Math.round(mean) + '%';
-        } else {
-            elMean.textContent = '—';
-        }
+    if (marksList.length > 0) {
+        meanScoreValue = Math.round(marksList.reduce((a, b) => a + b, 0) / marksList.length);
     }
+    if (elMean) elMean.textContent = meanScoreValue !== null ? meanScoreValue + '%' : '—';
 
     // Avg Attendance — average of each class's most recent check-in rate
     const attendanceRecords = getData('attendanceNotifications') || [];
-    const elAvgAttendance = document.getElementById('avgAttendanceStat');
-    if (elAvgAttendance) {
-        if (attendanceRecords.length > 0) {
-            const latestByClass = {};
-            attendanceRecords.forEach(r => {
-                const ts = r.timestamp || 0;
-                if (!latestByClass[r.class] || ts > latestByClass[r.class].timestamp) {
-                    latestByClass[r.class] = r;
-                }
-            });
-            const rates = Object.values(latestByClass)
-                .filter(r => r.totalCount > 0)
-                .map(r => (r.presentCount / r.totalCount) * 100);
-            if (rates.length > 0) {
-                const avgRate = rates.reduce((a, b) => a + b, 0) / rates.length;
-                elAvgAttendance.textContent = Math.round(avgRate) + '%';
-            } else {
-                elAvgAttendance.textContent = '—';
+    let avgAttendanceValue = null;
+    if (attendanceRecords.length > 0) {
+        const latestByClass = {};
+        attendanceRecords.forEach(r => {
+            const ts = r.timestamp || 0;
+            if (!latestByClass[r.class] || ts > latestByClass[r.class].timestamp) {
+                latestByClass[r.class] = r;
             }
-        } else {
-            elAvgAttendance.textContent = '—';
+        });
+        const rates = Object.values(latestByClass)
+            .filter(r => r.totalCount > 0)
+            .map(r => (r.presentCount / r.totalCount) * 100);
+        if (rates.length > 0) {
+            avgAttendanceValue = Math.round(rates.reduce((a, b) => a + b, 0) / rates.length);
         }
     }
+    const elAvgAttendance = document.getElementById('avgAttendanceStat');
+    if (elAvgAttendance) elAvgAttendance.textContent = avgAttendanceValue !== null ? avgAttendanceValue + '%' : '—';
 
+    // Overview banner — a full snapshot, built only from real, currently-available stats
     const insightEl = document.getElementById('insightSummary');
     if (insightEl) {
-        insightEl.textContent = totalStudents > 0
-            ? `${totalStudents.toLocaleString()} students across ${totalClasses} class${totalClasses === 1 ? '' : 'es'}, supported by ${totalTeachers} teacher${totalTeachers === 1 ? '' : 's'}.`
-            : 'No students enrolled yet — add your first student to get started.';
+        if (totalStudents === 0) {
+            insightEl.innerHTML = '<div class="insight-chip">No students enrolled yet — add your first student to get started.</div>';
+        } else {
+            const chips = [];
+            chips.push(`<strong>${totalStudents.toLocaleString()}</strong> Students`);
+            chips.push(`<strong>${totalTeachers.toLocaleString()}</strong> Teachers`);
+            chips.push(`<strong>${totalClasses.toLocaleString()}</strong> Classes`);
+            if (avgAttendanceValue !== null) chips.push(`<strong>${avgAttendanceValue}%</strong> Attendance`);
+            if (feesCollected > 0) chips.push(`<strong>${formatCurrency(feesCollected.toString())}</strong> Collected`);
+            if (meanScoreValue !== null) chips.push(`<strong>${meanScoreValue}%</strong> Mean Score`);
+            if (examTypes.size > 0) chips.push(`<strong>${examTypes.size}</strong> Active Exam${examTypes.size === 1 ? '' : 's'}`);
+
+            insightEl.innerHTML = chips.map(c => `<span class="insight-chip">${c}</span>`).join('');
+        }
     }
 
     animateStats();
