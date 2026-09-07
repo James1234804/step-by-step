@@ -321,6 +321,32 @@ function updateDashboardStats() {
         }
     }
 
+    // Avg Attendance — average of each class's most recent check-in rate
+    const attendanceRecords = getData('attendanceNotifications') || [];
+    const elAvgAttendance = document.getElementById('avgAttendanceStat');
+    if (elAvgAttendance) {
+        if (attendanceRecords.length > 0) {
+            const latestByClass = {};
+            attendanceRecords.forEach(r => {
+                const ts = r.timestamp || 0;
+                if (!latestByClass[r.class] || ts > latestByClass[r.class].timestamp) {
+                    latestByClass[r.class] = r;
+                }
+            });
+            const rates = Object.values(latestByClass)
+                .filter(r => r.totalCount > 0)
+                .map(r => (r.presentCount / r.totalCount) * 100);
+            if (rates.length > 0) {
+                const avgRate = rates.reduce((a, b) => a + b, 0) / rates.length;
+                elAvgAttendance.textContent = Math.round(avgRate) + '%';
+            } else {
+                elAvgAttendance.textContent = '—';
+            }
+        } else {
+            elAvgAttendance.textContent = '—';
+        }
+    }
+
     const insightEl = document.getElementById('insightSummary');
     if (insightEl) {
         insightEl.textContent = totalStudents > 0
@@ -332,6 +358,57 @@ function updateDashboardStats() {
     renderDashboardCharts(students, classes);
     renderRecentPayments(fees);
     renderFeeAlerts(students, fees);
+    renderLiveAttendance();
+}
+
+function renderLiveAttendance() {
+    const list = document.getElementById('liveAttendanceList');
+    if (!list) return;
+
+    const records = getData('attendanceNotifications') || [];
+    if (records.length === 0) {
+        list.innerHTML = '<p style="color: var(--muted-text); text-align: center; padding: 1.5rem;">No attendance checked in yet today</p>';
+        return;
+    }
+
+    const sorted = [...records].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 6);
+
+    list.innerHTML = '';
+    sorted.forEach(r => {
+        const rate = r.totalCount > 0 ? Math.round((r.presentCount / r.totalCount) * 100) : 0;
+
+        const item = document.createElement('div');
+        item.className = 'activity-item';
+
+        const icon = document.createElement('span');
+        icon.className = 'activity-icon';
+        icon.textContent = '📋';
+
+        const details = document.createElement('div');
+        details.className = 'activity-details';
+        details.style.flex = '1';
+        details.style.minWidth = '0';
+
+        const text = document.createElement('p');
+        text.className = 'activity-text';
+        text.style.margin = '0 0 0.2rem 0';
+        text.style.fontSize = '0.87rem';
+        text.textContent = `${r.teacher || 'A teacher'} marked attendance — ${r.class}`;
+
+        const time = document.createElement('p');
+        time.className = 'activity-time';
+        time.style.margin = '0';
+        time.style.fontSize = '0.78rem';
+        time.style.color = 'var(--muted-text)';
+        const timeStr = r.timestamp ? new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        time.textContent = `${r.presentCount}/${r.totalCount} present (${rate}%) • ${timeStr}`;
+
+        details.appendChild(text);
+        details.appendChild(time);
+        item.appendChild(icon);
+        item.appendChild(details);
+        list.appendChild(item);
+    });
 }
 
 function renderRecentPayments(fees) {
@@ -762,6 +839,9 @@ window.addEventListener('storage', (e) => {
     if (e.key === 'attendanceNotifications' || e.key === 'activities') {
         console.log('Notifications updated from another tab');
         renderNotificationDropdown();
+        if (e.key === 'attendanceNotifications') {
+            updateDashboardStats();
+        }
     }
 });
 
