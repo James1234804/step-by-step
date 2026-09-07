@@ -139,7 +139,7 @@ function navigateTo(section) {
 // ===========================
 // API FUNCTIONS
 // ===========================
-const API_URL = 'https://step-by-step-production-ad72.up.railway.app/api';
+const API_URL = 'https://shallom-high-elite.onrender.com/api';
 
 const BACKEND_KEYS = ['students', 'teachers', 'classes', 'timetables', 'fees', 'attendance'];
 
@@ -2692,23 +2692,16 @@ function deleteFeeRecord(button, studentId) {
     }
 }
 
-async function saveTotalFees() {
+function saveTotalFees() {
     const amount = document.getElementById('totalFeesInput').value;
     if (!amount || isNaN(amount)) { showNotification('Enter a valid amount', 'warning'); return; }
-    
-    try {
-        await fetch('https://step-by-step-production-ad72.up.railway.app/api/teacher/fee-settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
-            body: JSON.stringify({ totalDue: parseInt(amount) })
-        });
-        localStorage.setItem('totalFeesDue', amount);
-        document.getElementById('currentTotalFees').textContent = `Current: $${amount}`;
-        showNotification('Total fees saved!', 'success');
-        loadFeesFromStorage();
-    } catch(e) {
-        showNotification('Error saving fees setting', 'error');
-    }
+
+    localStorage.setItem('totalFeesDue', amount);
+    document.getElementById('currentTotalFees').textContent = `Current: $${amount}`;
+    showNotification('Total fees saved!', 'success');
+    loadFeesFromStorage();
+    updateFeeSummary();
+    updateDashboardStats();
 }
 
 function loadTotalFees() {
