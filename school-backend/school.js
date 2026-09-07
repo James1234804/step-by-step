@@ -339,23 +339,10 @@ function updateDashboardStats() {
     const elAvgAttendance = document.getElementById('avgAttendanceStat');
     if (elAvgAttendance) elAvgAttendance.textContent = avgAttendanceValue !== null ? avgAttendanceValue + '%' : '—';
 
-    // Overview banner — a full snapshot, built only from real, currently-available stats
+    // Overview banner — a real analytical insight, not just a stats recap
     const insightEl = document.getElementById('insightSummary');
     if (insightEl) {
-        if (totalStudents === 0) {
-            insightEl.innerHTML = '<div class="insight-chip">No students enrolled yet — add your first student to get started.</div>';
-        } else {
-            const chips = [];
-            chips.push(`<strong>${totalStudents.toLocaleString()}</strong> Students`);
-            chips.push(`<strong>${totalTeachers.toLocaleString()}</strong> Teachers`);
-            chips.push(`<strong>${totalClasses.toLocaleString()}</strong> Classes`);
-            if (avgAttendanceValue !== null) chips.push(`<strong>${avgAttendanceValue}%</strong> Attendance`);
-            if (feesCollected > 0) chips.push(`<strong>${formatCurrency(feesCollected.toString())}</strong> Collected`);
-            if (meanScoreValue !== null) chips.push(`<strong>${meanScoreValue}%</strong> Mean Score`);
-            if (examTypes.size > 0) chips.push(`<strong>${examTypes.size}</strong> Active Exam${examTypes.size === 1 ? '' : 's'}`);
-
-            insightEl.innerHTML = chips.map(c => `<span class="insight-chip">${c}</span>`).join('');
-        }
+        insightEl.textContent = computeSchoolInsight(students, grades, attendanceRecords, totalStudents);
     }
 
     animateStats();
@@ -363,6 +350,101 @@ function updateDashboardStats() {
     renderRecentPayments(fees);
     renderFeeAlerts(students, fees);
     renderLiveAttendance();
+}
+
+// ===========================
+// AI OVERVIEW / INSIGHT ENGINE
+// ===========================
+// Looks at real recorded grades and attendance to surface the single most
+// useful finding: a subject/class in decline, the weakest subject overall,
+// or a class with low attendance. Falls back to a neutral message when
+// there isn't yet enough data to say anything meaningful.
+
+function computeSchoolInsight(students, grades, attendanceRecords, totalStudents) {
+    if (totalStudents === 0) {
+        return 'No students enrolled yet — add your first student to get started.';
+    }
+
+    // 1. Look for a class+subject that dropped between Midterm and Final
+    const bySubjectClass = {};
+    (grades || []).forEach(g => {
+        if (!g.subject || !g.class || g.marks === undefined || g.marks === null) return;
+        const key = g.class + '|||' + g.subject;
+        if (!bySubjectClass[key]) bySubjectClass[key] = {};
+        const examKey = (g.examType || '').toLowerCase();
+        if (!bySubjectClass[key][examKey]) bySubjectClass[key][examKey] = [];
+        bySubjectClass[key][examKey].push(parseFloat(g.marks));
+    });
+
+    let worstDrop = null; // { class, subject, from, to, pctDrop }
+    Object.keys(bySubjectClass).forEach(key => {
+        const [className, subject] = key.split('|||');
+        const exams = bySubjectClass[key];
+        if (exams['midterm'] && exams['final']) {
+            const avgMid = exams['midterm'].reduce((a, b) => a + b, 0) / exams['midterm'].length;
+            const avgFinal = exams['final'].reduce((a, b) => a + b, 0) / exams['final'].length;
+            if (avgFinal < avgMid) {
+                const pctDrop = avgMid > 0 ? ((avgMid - avgFinal) / avgMid) * 100 : 0;
+                if (!worstDrop || pctDrop > worstDrop.pctDrop) {
+                    worstDrop = { className, subject, from: avgMid, to: avgFinal, pctDrop };
+                }
+            }
+        }
+    });
+
+    if (worstDrop && worstDrop.pctDrop >= 1) {
+        return `${worstDrop.subject} scores in ${worstDrop.className} dropped ${Math.round(worstDrop.pctDrop)}% between Midterm and Final (${Math.round(worstDrop.from)}% → ${Math.round(worstDrop.to)}%) — may need extra support.`;
+    }
+
+    // 2. No trend data yet — flag the single weakest subject/class average, if low
+    const subjectAverages = {};
+    (grades || []).forEach(g => {
+        if (!g.subject || !g.class || g.marks === undefined || g.marks === null) return;
+        const key = g.class + '|||' + g.subject;
+        if (!subjectAverages[key]) subjectAverages[key] = [];
+        subjectAverages[key].push(parseFloat(g.marks));
+    });
+    let weakest = null; // { class, subject, avg }
+    Object.keys(subjectAverages).forEach(key => {
+        const [className, subject] = key.split('|||');
+        const vals = subjectAverages[key];
+        const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+        if (!weakest || avg < weakest.avg) weakest = { className, subject, avg };
+    });
+
+    if (weakest && weakest.avg < 60) {
+        return `${weakest.subject} in ${weakest.className} is averaging ${Math.round(weakest.avg)}% — the weakest subject currently recorded. Worth a closer look.`;
+    }
+
+    // 3. Check for a class with low recent attendance
+    if (attendanceRecords && attendanceRecords.length > 0) {
+        const latestByClass = {};
+        attendanceRecords.forEach(r => {
+            const ts = r.timestamp || 0;
+            if (!latestByClass[r.class] || ts > latestByClass[r.class].timestamp) {
+                latestByClass[r.class] = r;
+            }
+        });
+        let lowestAttendance = null;
+        Object.values(latestByClass).forEach(r => {
+            if (r.totalCount > 0) {
+                const rate = (r.presentCount / r.totalCount) * 100;
+                if (!lowestAttendance || rate < lowestAttendance.rate) {
+                    lowestAttendance = { className: r.class, rate };
+                }
+            }
+        });
+        if (lowestAttendance && lowestAttendance.rate < 80) {
+            return `Attendance in ${lowestAttendance.className} is at ${Math.round(lowestAttendance.rate)}% — below the 80% mark and worth following up on.`;
+        }
+    }
+
+    // 4. Nothing concerning found — say so plainly
+    if (Object.keys(subjectAverages).length > 0 || (attendanceRecords && attendanceRecords.length > 0)) {
+        return 'No major concerns detected — grades and attendance are looking healthy across recorded classes.';
+    }
+
+    return 'Add grades and attendance data to see AI-generated insights here.';
 }
 
 function renderLiveAttendance() {
@@ -1294,6 +1376,8 @@ function closeClassDetailsModal() {
 }
 
 function promptAddGrade(studentId) {
+    const subject = prompt('Enter subject (e.g. Mathematics):');
+    if (!subject) return showNotification('Subject is required', 'warning');
     const examType = prompt('Enter exam type (Midterm or Final):');
     if (!examType) return;
     const marks = prompt('Enter marks (0-100):');
@@ -1304,12 +1388,12 @@ function promptAddGrade(studentId) {
 
     let grades = getData('grades') || [];
     if (!Array.isArray(grades)) grades = [];
-    const existingIdx = grades.findIndex(g => g.studentId === studentId && (g.examType||'').toLowerCase() === examType.toLowerCase());
+    const existingIdx = grades.findIndex(g => g.studentId === studentId && (g.subject||'').toLowerCase() === subject.toLowerCase() && (g.examType||'').toLowerCase() === examType.toLowerCase());
     const student = (getData('students') || []).find(s => s.id === studentId);
     if (existingIdx !== -1) {
-        grades[existingIdx] = { ...grades[existingIdx], marks: m, grade, examType };
+        grades[existingIdx] = { ...grades[existingIdx], marks: m, grade, examType, subject };
     } else {
-        grades.push({ id: String(grades.length + 1).padStart(3,'0'), studentId, studentName: student?.name||'', class: student?.class||'', subject: '', examType, marks: m, grade });
+        grades.push({ id: String(grades.length + 1).padStart(3,'0'), studentId, studentName: student?.name||'', class: student?.class||'', subject, examType, marks: m, grade });
     }
     if (saveData('grades', grades)) {
         showNotification('Grade saved', 'success');
@@ -1318,6 +1402,7 @@ function promptAddGrade(studentId) {
         const cls = classes.find(c => c.name === currentClass);
         if (cls) openClassDetailsModal(cls.id);
         loadGradesForMain();
+        updateDashboardStats();
     } else {
         showNotification('Error saving grade', 'error');
     }
