@@ -663,19 +663,32 @@ function renderDashboardCharts(students, classes) {
             const key = parts[2] + '-' + parts[0].padStart(2, '0');
             monthTotals[key] = (monthTotals[key] || 0) + (parseInt(f.amount) || 0);
         });
-        const sortedKeys = Object.keys(monthTotals).sort();
-        const hasData = sortedKeys.length > 0;
+
+        const hasData = Object.keys(monthTotals).length > 0;
 
         feeCanvas.style.display = hasData ? 'block' : 'none';
         if (feeEmptyNote) feeEmptyNote.style.display = hasData ? 'none' : 'block';
 
         if (hasData) {
             const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            const labels = sortedKeys.map(k => {
+
+            // Build a continuous Jan–Dec timeline for the current year, instead
+            // of only plotting the months that already have a payment. That's
+            // what was making a single payment render as a lone dot with no
+            // visible line — with zero-filled months either side, Chart.js has
+            // real points to connect, so the line actually rises and falls as
+            // collections vary month to month.
+            const currentYear = new Date().getFullYear();
+            const monthKeys = [];
+            for (let m = 1; m <= 12; m++) {
+                monthKeys.push(currentYear + '-' + String(m).padStart(2, '0'));
+            }
+
+            const labels = monthKeys.map(k => {
                 const [y, m] = k.split('-');
                 return monthNames[parseInt(m) - 1] + ' ' + y;
             });
-            const values = sortedKeys.map(k => monthTotals[k]);
+            const values = monthKeys.map(k => monthTotals[k] || 0);
 
             // Current outstanding balance — a snapshot total, not a real historical
             // trend, shown as a flat dashed reference line across the same months.
