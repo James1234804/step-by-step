@@ -493,6 +493,38 @@ h1, h2, h3 { letter-spacing: -0.01em; }
     font-size: 0.88rem;
 }
 
+.live-clock {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 0.6rem 1.1rem;
+}
+
+.live-clock svg {
+    width: 20px;
+    height: 20px;
+    stroke-width: 2px;
+    color: var(--primary-color);
+    flex-shrink: 0;
+}
+
+.live-clock-time {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--dark-text);
+    line-height: 1.25;
+    font-variant-numeric: tabular-nums;
+}
+
+.live-clock-date {
+    font-size: 0.76rem;
+    color: var(--muted-text);
+    line-height: 1.25;
+}
+
 /* ===========================
    STATS GRID
    =========================== */
