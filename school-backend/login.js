@@ -1,40 +1,76 @@
  (function(){
+  // Same Supabase project used by school.js â€” this is what actually makes
+  // login work on a browser that has never stored anything locally.
+  const SUPABASE_URL = 'https://tnrxsrjzdshjuhvebkck.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRucnhzcmp6ZHNoanVodmVia2NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA1NTcsImV4cCI6MjA5Mjc5NjU1N30.4b6CAXXs21aIJKm1qi9bOuIE5zDfJiEQze9hoxSJ7ig';
+
+  const supabaseClient = (window.supabase && window.supabase.createClient)
+      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+      : null;
+
   function getData(key){try{return JSON.parse(localStorage.getItem(key));}catch(e){return null}}
   function saveData(key,val){localStorage.setItem(key,JSON.stringify(val))}
 
-  async function login(username, password) {
-    try {
-      const res = await fetch('https://shallom-high-elite.onrender.com/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-
-      const data = await res.json();
-
-      if (data.token) {
-        localStorage.setItem('authToken', data.token);
-        saveData('currentUser', { username, name: data.name, role: data.role });
-        if (data.role === 'teacher') {
-          window.location.href = 'teacher.html';
-        } else {
-          window.location.href = 'index.html';
-        }
-        return;
-      }
-    } catch(e) {
-      console.warn('Backend login failed, trying localStorage:', e);
+  // Guests, teachers, and headmasters are all stored together as one JSON
+  // array inside Supabase's "settings" table (key = 'users'). Pulling this
+  // fresh on every login attempt means login works even on a browser that
+  // has never had this data before â€” not just the one it was created on.
+  async function fetchUsers() {
+    if (!supabaseClient) {
+      console.warn('Supabase client unavailable â€” falling back to local cache only.');
+      return getData('users') || [];
     }
+    try {
+      const { data, error } = await supabaseClient
+        .from('settings')
+        .select('value')
+        .eq('key', 'users')
+        .maybeSingle();
+      if (error || !data) {
+        console.warn('Could not fetch users from Supabase, using local cache:', error?.message);
+        return getData('users') || [];
+      }
+      const users = JSON.parse(data.value);
+      saveData('users', users); // keep the local cache fresh too
+      return users;
+    } catch (e) {
+      console.warn('Error fetching users from Supabase, using local cache:', e);
+      return getData('users') || [];
+    }
+  }
 
-    const users = getData('users') || [];
+  // Students live in their own real Supabase table (not the settings blob),
+  // with `password` defaulting to their student ID â€” same as school.js sets
+  // when a student is first added.
+  async function fetchStudents() {
+    if (!supabaseClient) {
+      console.warn('Supabase client unavailable â€” falling back to local cache only.');
+      return getData('students') || [];
+    }
+    try {
+      const { data, error } = await supabaseClient.from('students').select('*');
+      if (error || !data) {
+        console.warn('Could not fetch students from Supabase, using local cache:', error?.message);
+        return getData('students') || [];
+      }
+      const students = data.map(row => ({
+        id: row.id, name: row.name, class: row.class, gender: row.gender, password: row.password
+      }));
+      saveData('students', students);
+      return students;
+    } catch (e) {
+      console.warn('Error fetching students from Supabase, using local cache:', e);
+      return getData('students') || [];
+    }
+  }
+
+  // ===== ADMIN / GUEST LOGIN =====
+  async function login(username, password) {
+    const users = await fetchUsers();
     const user = users.find(u => u.username === username && u.password === password);
     if (user) {
       saveData('currentUser', user);
-      if (user.role === 'teacher') {
-        window.location.href = 'teacher.html';
-      } else {
-        window.location.href = 'index.html';
-      }
+      window.location.href = (user.role === 'teacher') ? 'teacher.html' : 'index.html';
     } else {
       alert('Invalid credentials');
     }
@@ -42,58 +78,49 @@
 
   document.addEventListener('DOMContentLoaded', () => {
 
-    // GöÇGöÇ ADMIN LOGIN GöÇGöÇ
+    // ===== ADMIN LOGIN =====
     document.getElementById('btnLogin').addEventListener('click', () => {
       const u = document.getElementById('loginUser').value.trim();
       const p = document.getElementById('loginPass').value;
       login(u, p);
     });
 
-    // GöÇGöÇ TEACHER LOGIN GöÇGöÇ
-    // GöÇGöÇ TEACHER LOGIN GöÇGöÇ
-const tBtn = document.getElementById('btnTeacherLogin');
-if (tBtn) {
-  tBtn.addEventListener('click', async () => {
-    const u = prompt('Teacher username or name:');
-    if (!u) return;
-    const p = prompt('Password:');
-    if (p === null) return;
+    // ===== TEACHER LOGIN =====
+    const tBtn = document.getElementById('btnTeacherLogin');
+    if (tBtn) {
+      tBtn.addEventListener('click', async () => {
+        const u = prompt('Teacher username or name:');
+        if (!u) return;
+        const p = prompt('Password:');
+        if (p === null) return;
 
-    try {
-      const res = await fetch('https://shallom-high-elite.onrender.com/api/auth/teacher-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: u.trim(), password: p })
+        const users = await fetchUsers();
+        const teacher = users.find(usr =>
+          usr.role === 'teacher' &&
+          usr.username.trim().toLowerCase() === u.trim().toLowerCase() &&
+          usr.password === p
+        );
+
+        if (teacher) {
+          saveData('currentUser', { id: teacher.id, name: teacher.name || teacher.username, role: 'teacher' });
+          window.location.href = 'teacher.html';
+        } else {
+          alert('Invalid teacher credentials');
+        }
       });
-      const data = await res.json();
-      if (data.token) {
-        localStorage.setItem('authToken', data.token);
-        localStorage.setItem('currentUser', JSON.stringify({
-          id: data.id,
-          name: data.name,
-          role: 'teacher'
-        }));
-        window.location.href = 'teacher.html';
-      } else {
-        alert(data.error || 'Login failed');
-      }
-    } catch(e) {
-      alert('Could not connect to server');
     }
-  });
-}
 
-    // GöÇGöÇ STUDENT LOGIN - open modal GöÇGöÇ
+    // ===== STUDENT LOGIN â€” open modal =====
     document.getElementById('btnStudentLogin').addEventListener('click', () => {
       document.getElementById('studentLoginModal').style.display = 'flex';
     });
 
-    // GöÇGöÇ STUDENT LOGIN - cancel GöÇGöÇ
+    // ===== STUDENT LOGIN â€” cancel =====
     document.getElementById('btnCancelStudent').addEventListener('click', () => {
       document.getElementById('studentLoginModal').style.display = 'none';
     });
 
-    // GöÇGöÇ STUDENT LOGIN - confirm GöÇGöÇ
+    // ===== STUDENT LOGIN â€” confirm =====
     document.getElementById('btnConfirmStudent').addEventListener('click', async () => {
       const studentId = document.getElementById('inputStudentId').value.trim();
       const password  = document.getElementById('inputStudentPass').value;
@@ -103,29 +130,20 @@ if (tBtn) {
         return;
       }
 
-      try {
-        const res  = await fetch('https://shallom-high-elite.onrender.com/api/auth/student-login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ studentId, password })
-        });
-        const data = await res.json();
+      const students = await fetchStudents();
+      const student = students.find(s => s.id === studentId && s.password === password);
 
-        if (data.token) {
-          localStorage.setItem('authToken', data.token);
-          localStorage.setItem('currentUser', JSON.stringify({
-            id:        data.id,
-            name:      data.name,
-            studentId: data.studentId,
-            className: data.className,
-            role:      'student'
-          }));
-         window.location.href = 'student.html';
-        } else {
-          alert(data.error || 'Invalid Student ID or password');
-        }
-      } catch (e) {
-        alert('Could not connect to server');
+      if (student) {
+        saveData('currentUser', {
+          id: student.id,
+          name: student.name,
+          studentId: student.id,
+          className: student.class,
+          role: 'student'
+        });
+        window.location.href = 'student.html';
+      } else {
+        alert('Invalid Student ID or password');
       }
     });
 
