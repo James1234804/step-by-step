@@ -251,7 +251,11 @@ function mapRowForSupabase(table, item) {
                 name: item.name,
                 class: item.class || '',
                 gender: item.gender || '',
-                password: item.password || ''
+                password: item.password || '',
+                status: item.status || 'Active',
+                date_added: item.dateAdded || '',
+                parent_name: item.parentName || '',
+                phone: item.phone || ''
             };
         case 'teachers':
             return {
@@ -282,7 +286,7 @@ function mapRowFromSupabase(table, row) {
         case 'attendance':
             return { id: row.id, studentId: row.student_id, class: row.class, date: row.date, status: row.status, teacher: row.teacher, note: row.note };
         case 'students':
-            return { id: row.id, name: row.name, class: row.class, gender: row.gender, password: row.password };
+            return { id: row.id, name: row.name, class: row.class, gender: row.gender, password: row.password, status: row.status || 'Active', dateAdded: row.date_added || '', parentName: row.parent_name || '', phone: row.phone || '' };
         case 'teachers':
             return { id: row.id, name: row.name, department: row.department, email: row.email, phone: row.phone, status: row.status, username: row.username, class: row.class };
         default:
@@ -2021,8 +2025,10 @@ function loadStudentsFromStorage() {
         });
     } else {
         console.log('No students in storage');
-        tableBody.innerHTML = '<tr class="table-empty-row"><td colspan="4">No students added yet.</td></tr>';
+        tableBody.innerHTML = '<tr class="table-empty-row"><td colspan="10">No students added yet.</td></tr>';
     }
+
+    renderStudentStats(students || []);
 }
 
 function loadTeachersFromStorage() {
@@ -2048,15 +2054,40 @@ function loadTeachersFromStorage() {
     }
 }
 
+function getStudentFeeStatusBadge(studentId) {
+    const fees = getData('fees') || [];
+    const totalDue = parseInt(localStorage.getItem('totalFeesDue') || '0');
+    const paid = fees.filter(f => f.studentId === studentId).reduce((sum, f) => sum + (parseInt(f.amount) || 0), 0);
+
+    if (totalDue === 0) return { label: 'Not Set', cls: 'status-inactive' };
+    if (paid >= totalDue) return { label: 'Paid', cls: 'status-paid' };
+    if (paid > 0) return { label: 'Partial', cls: 'status-warning' };
+    return { label: 'Pending', cls: 'status-pending' };
+}
+
 function addStudentRowToTable(student, tableBody) {
+    const status = student.status || 'Active';
+    const statusClass = status === 'Active' ? 'status-active' : 'status-inactive';
+    const dateLabel = student.dateAdded
+        ? new Date(student.dateAdded).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+        : '—';
+    const toggleLabel = status === 'Active' ? 'Deactivate' : 'Activate';
+    const feeStatus = getStudentFeeStatusBadge(student.id);
+
     const newRow = document.createElement('tr');
     newRow.innerHTML = `
         <td>${student.id}</td>
         <td>${student.name}</td>
         <td>${student.class}</td>
+        <td>${student.parentName || '—'}</td>
+        <td>${student.phone || '—'}</td>
+        <td>${student.gender || '—'}</td>
+        <td><span class="status-badge ${feeStatus.cls}">${feeStatus.label}</span></td>
+        <td><span class="status-badge ${statusClass}">${status}</span></td>
+        <td>${dateLabel}</td>
         <td>
             <button class="btn-small btn-info" onclick="viewStudentDetail('${student.id}')">View</button>
-            <button class="btn-small btn-warning" onclick="editRecord('student')">Edit</button>
+            <button class="btn-small btn-warning" onclick="toggleStudentStatus('${student.id}')">${toggleLabel}</button>
             <button class="btn-small btn-danger" onclick="deleteStudentRecord(this, '${student.id}')">Delete</button>
         </td>
     `;
@@ -2139,10 +2170,12 @@ document.addEventListener('submit', function(e) {
         const name = document.getElementById('studentNameInput').value.trim();
         const studentClass = document.getElementById('studentClassSelect').value;
         const gender = document.getElementById('studentGenderSelect')?.value || '';
+        const parentName = document.getElementById('studentParentInput')?.value.trim() || '';
+        const phone = document.getElementById('studentPhoneInput')?.value.trim() || '';
         if (!name || !studentClass) return showNotification('Please provide student name and class', 'warning');
         const classes = getData('classes') || [];
         if (!classes.find(c => c.name === studentClass)) return showNotification('Selected class does not exist', 'error');
-        addStudentToTable(name, studentClass, gender);
+        addStudentToTable(name, studentClass, gender, parentName, phone);
         closeStudentModal();
         showNotification('Student added successfully!', 'success');
     }
@@ -2154,7 +2187,7 @@ document.addEventListener('click', function(e) {
     if (modal.getAttribute('aria-hidden') === 'false' && e.target === modal) closeStudentModal();
 });
 
-function addStudentToTable(name, studentClass, gender) {
+function addStudentToTable(name, studentClass, gender, parentName, phone) {
     console.log('Adding student:', name);
     
     let students = getData('students') || [];
@@ -2170,7 +2203,11 @@ function addStudentToTable(name, studentClass, gender) {
         name: name,
         class: studentClass,
         gender: gender || '',
-        password: nextId
+        parentName: parentName || '',
+        phone: phone || '',
+        password: nextId,
+        status: 'Active',
+        dateAdded: new Date().toISOString()
     };
     students.push(newStudent);
     
@@ -2179,6 +2216,7 @@ function addStudentToTable(name, studentClass, gender) {
         const emptyRow = tableBody.querySelector('.table-empty-row');
         if (emptyRow) emptyRow.remove();
         addStudentRowToTable(newStudent, tableBody);
+        renderStudentStats(students);
         console.log('✓ Student added successfully');
         loadClassesFromStorage();
         updateDashboardStats();
@@ -2186,6 +2224,56 @@ function addStudentToTable(name, studentClass, gender) {
     } else {
         showNotification('Error saving student!', 'error');
     }
+}
+
+// Flips a student between Active/Inactive — this is what actually makes
+// the Active/Inactive stat cards and filter mean something, instead of
+// every student being permanently "Active" with no way to change it.
+function toggleStudentStatus(studentId) {
+    let students = getData('students') || [];
+    const idx = students.findIndex(s => s.id === studentId);
+    if (idx === -1) return showNotification('Student not found', 'error');
+
+    const current = students[idx].status || 'Active';
+    students[idx].status = current === 'Active' ? 'Inactive' : 'Active';
+
+    if (saveData('students', students)) {
+        loadStudentsFromStorage();
+        showNotification(`${students[idx].name} marked as ${students[idx].status}`, 'success');
+        addActivity('🔄', `${students[idx].name} marked as ${students[idx].status}`);
+    } else {
+        showNotification('Error updating student status', 'error');
+    }
+}
+
+// Computes and displays the Total/Active/Inactive/Male/Female/New This
+// Month stat cards at the top of the Students page.
+function renderStudentStats(students) {
+    const list = Array.isArray(students) ? students : (getData('students') || []);
+
+    const total = list.length;
+    // Older student records saved before the status field existed have no
+    // `status` at all — treat those as Active rather than silently excluding
+    // them from every stat.
+    const active = list.filter(s => (s.status || 'Active') === 'Active').length;
+    const inactive = list.filter(s => s.status === 'Inactive').length;
+    const male = list.filter(s => s.gender === 'Male').length;
+    const female = list.filter(s => s.gender === 'Female').length;
+
+    const now = new Date();
+    const newThisMonth = list.filter(s => {
+        if (!s.dateAdded) return false;
+        const d = new Date(s.dateAdded);
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }).length;
+
+    const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+    setText('studentStatTotal', total);
+    setText('studentStatActive', active);
+    setText('studentStatInactive', inactive);
+    setText('studentStatMale', male);
+    setText('studentStatFemale', female);
+    setText('studentStatNew', newThisMonth);
 }
 
 // ===========================
@@ -2214,8 +2302,9 @@ function deleteStudentRecord(button, studentId) {
 
             const tableBody = document.getElementById('studentsTableBody');
             if (tableBody && tableBody.children.length === 0) {
-                tableBody.innerHTML = '<tr class="table-empty-row"><td colspan="4">No students added yet.</td></tr>';
+                tableBody.innerHTML = '<tr class="table-empty-row"><td colspan="10">No students added yet.</td></tr>';
             }
+            renderStudentStats(students);
 
             loadFeesFromStorage();
             updateFeeSummary();
@@ -2349,6 +2438,8 @@ function editRecord(type) {
 function initializeFilters() {
     const studentSearch = document.getElementById('studentSearch');
     const classFilter = document.getElementById('classFilter');
+    const studentGenderFilter = document.getElementById('studentGenderFilter');
+    const studentStatusFilter = document.getElementById('studentStatusFilter');
     const teacherSearch = document.getElementById('teacherSearch');
     const departmentFilter = document.getElementById('departmentFilter');
     const gradeClassFilter = document.getElementById('gradeClassFilter');
@@ -2359,6 +2450,12 @@ function initializeFilters() {
     }
     if (classFilter) {
         classFilter.addEventListener('change', filterStudents);
+    }
+    if (studentGenderFilter) {
+        studentGenderFilter.addEventListener('change', filterStudents);
+    }
+    if (studentStatusFilter) {
+        studentStatusFilter.addEventListener('change', filterStudents);
     }
     if (teacherSearch) {
         teacherSearch.addEventListener('keyup', filterTeachers);
@@ -2377,18 +2474,27 @@ function initializeFilters() {
 function filterStudents() {
     const searchTerm = document.getElementById('studentSearch').value.toLowerCase();
     const classFilter = document.getElementById('classFilter').value;
+    const genderFilter = document.getElementById('studentGenderFilter')?.value || '';
+    const statusFilter = document.getElementById('studentStatusFilter')?.value || '';
+    const students = getData('students') || [];
     const tableBody = document.getElementById('studentsTableBody');
     const rows = tableBody.querySelectorAll('tr');
 
-    rows.forEach(row => {
+    rows.forEach((row, i) => {
         if (row.classList.contains('table-empty-row')) return;
-        const name = row.children[1].textContent.toLowerCase();
-        const className = row.children[2].textContent;
+        const student = students[i];
+        if (!student) return;
 
-        const matchesSearch = name.includes(searchTerm);
-        const matchesClass = !classFilter || className === classFilter;
+        const matchesSearch = !searchTerm ||
+            student.name.toLowerCase().includes(searchTerm) ||
+            (student.parentName || '').toLowerCase().includes(searchTerm) ||
+            (student.phone || '').toLowerCase().includes(searchTerm) ||
+            student.class.toLowerCase().includes(searchTerm);
+        const matchesClass = !classFilter || student.class === classFilter;
+        const matchesGender = !genderFilter || student.gender === genderFilter;
+        const matchesStatus = !statusFilter || (student.status || 'Active') === statusFilter;
 
-        row.style.display = matchesSearch && matchesClass ? '' : 'none';
+        row.style.display = (matchesSearch && matchesClass && matchesGender && matchesStatus) ? '' : 'none';
     });
 }
 
