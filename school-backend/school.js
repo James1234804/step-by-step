@@ -137,11 +137,115 @@ function navigateTo(section) {
 }
 
 // ===========================
-// API FUNCTIONS
+// API FUNCTIONS — SUPABASE BACKEND
 // ===========================
-const API_URL = 'https://shallom-high-elite.onrender.com/api';
+// Data now lives in a real Supabase (Postgres) database, not just the
+// browser's localStorage. localStorage is still used as a fast local cache
+// so the UI reads/writes instantly, but Supabase is the real source of
+// truth — this is what fixes data disappearing when a browser clears its
+// storage after inactivity.
+
+const SUPABASE_URL = 'https://tnrxsrjzdshjuhvebkck.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRucnhzcmp6ZHNoanVodmVia2NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA1NTcsImV4cCI6MjA5Mjc5NjU1N30.4b6CAXXs21aIJKm1qi9bOuIE5zDfJiEQze9hoxSJ7ig';
+
+const supabaseClient = (window.supabase && window.supabase.createClient)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
+
+if (!supabaseClient) {
+    console.warn('Supabase client failed to initialize — check that the supabase-js <script> tag is in index.html and loaded before school.js.');
+}
 
 const BACKEND_KEYS = ['students', 'teachers', 'classes', 'timetables', 'fees', 'attendance'];
+
+// Converts a local JS object (the shape the rest of school.js already
+// uses) into the column names actually defined in the Supabase tables.
+function mapRowForSupabase(table, item) {
+    switch (table) {
+        case 'classes':
+            return {
+                id: item.id,
+                name: item.name,
+                form_level: item.formLevel || null,
+                teacher: item.teacher || '',
+                room: item.room || ''
+            };
+        case 'fees':
+            return {
+                id: item.id,
+                student_id: item.studentId,
+                student_name: item.studentName || '',
+                class: item.class || '',
+                amount: item.amount || 0,
+                status: item.status || '',
+                term: item.term || '',
+                year: item.year || '',
+                date_paid: item.datePaid || ''
+            };
+        case 'timetables':
+            return {
+                id: item.id,
+                class: item.class || '',
+                day: item.day || '',
+                start_time: item.start || '',
+                end_time: item.end || '',
+                teacher: item.teacher || '',
+                subject: item.subject || ''
+            };
+        case 'attendance':
+            return {
+                id: item.id,
+                student_id: item.studentId,
+                class: item.class || '',
+                date: item.date || '',
+                status: item.status || '',
+                teacher: item.teacher || item.markedBy || '',
+                note: item.note || ''
+            };
+        case 'students':
+            return {
+                id: item.id,
+                name: item.name,
+                class: item.class || '',
+                gender: item.gender || '',
+                password: item.password || ''
+            };
+        case 'teachers':
+            return {
+                id: item.id,
+                name: item.name,
+                department: item.department || '',
+                email: item.email || '',
+                phone: item.phone || '',
+                status: item.status || '',
+                username: item.username || '',
+                class: item.class || ''
+            };
+        default:
+            return item;
+    }
+}
+
+// Converts a Supabase row (the snake_case columns above) back into the
+// camelCase shape the rest of school.js expects to read.
+function mapRowFromSupabase(table, row) {
+    switch (table) {
+        case 'classes':
+            return { id: row.id, name: row.name, formLevel: row.form_level, teacher: row.teacher, room: row.room };
+        case 'fees':
+            return { id: row.id, studentId: row.student_id, studentName: row.student_name, class: row.class, amount: row.amount, status: row.status, term: row.term, year: row.year, datePaid: row.date_paid };
+        case 'timetables':
+            return { id: row.id, class: row.class, day: row.day, start: row.start_time, end: row.end_time, teacher: row.teacher, subject: row.subject };
+        case 'attendance':
+            return { id: row.id, studentId: row.student_id, class: row.class, date: row.date, status: row.status, teacher: row.teacher, note: row.note };
+        case 'students':
+            return { id: row.id, name: row.name, class: row.class, gender: row.gender, password: row.password };
+        case 'teachers':
+            return { id: row.id, name: row.name, department: row.department, email: row.email, phone: row.phone, status: row.status, username: row.username, class: row.class };
+        default:
+            return row;
+    }
+}
 
 function saveData(key, data) {
     try {
@@ -166,39 +270,67 @@ function getData(key) {
     }
 }
 
-function getToken() {
-    return localStorage.getItem('authToken') || '';
-}
-
+// Pushes the full current array for a given key up to Supabase.
+// Each saveData() call already carries the complete, current snapshot of
+// that key, so the simplest reliable approach is: clear the table, then
+// insert the current snapshot. At this app's scale that's fast and avoids
+// having to diff old vs new rows.
 async function syncToBackend(key, data) {
+    if (!supabaseClient) return;
     try {
-        await fetch(`${API_URL}/sync`, {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${getToken()}`
-            },
-            body: JSON.stringify({ key, data })
-        });
+        await supabaseClient.from(key).delete().not('id', 'is', null);
+        if (Array.isArray(data) && data.length > 0) {
+            const rows = data.map(item => mapRowForSupabase(key, item));
+            const { error } = await supabaseClient.from(key).insert(rows);
+            if (error) console.warn(`Supabase insert failed for ${key}:`, error.message);
+        }
     } catch (e) {
-        console.warn('Backend sync failed:', e);
+        console.warn('Supabase sync failed:', e);
     }
 }
 
+// Pulls every table down from Supabase into localStorage on page load, so
+// data survives even if the browser clears local storage between visits
+// (e.g. Edge/Safari tracking-prevention clearing storage after inactivity).
 async function loadFromBackend() {
-    try {
-        const res = await fetch(`${API_URL}/sync`, {
-            headers: { 'Authorization': `Bearer ${getToken()}` }
-        });
-        const allData = await res.json();
-        Object.entries(allData).forEach(([key, value]) => {
-            if (value && value.length > 0) {
-                localStorage.setItem(key, JSON.stringify(value));
-                console.log(`✓ Loaded ${key} from backend`);
+    if (!supabaseClient) return;
+
+    for (const key of BACKEND_KEYS) {
+        try {
+            const { data, error } = await supabaseClient.from(key).select('*');
+            if (error) { console.warn(`Could not load ${key} from Supabase:`, error.message); continue; }
+            if (data) {
+                const mapped = data.map(row => mapRowFromSupabase(key, row));
+                localStorage.setItem(key, JSON.stringify(mapped));
+                console.log(`✓ Loaded ${key} from Supabase (${mapped.length} records)`);
             }
-        });
+        } catch (e) {
+            console.warn(`Error loading ${key} from Supabase:`, e);
+        }
+    }
+
+    // Also load school-wide settings (total fees due, currency) so those
+    // survive the same way the rest of the data now does.
+    try {
+        const { data, error } = await supabaseClient.from('settings').select('*');
+        if (!error && data) {
+            data.forEach(row => localStorage.setItem(row.key, row.value));
+            console.log('✓ Loaded settings from Supabase');
+        }
     } catch (e) {
-        console.warn('Could not load from backend, using localStorage:', e);
+        console.warn('Error loading settings from Supabase:', e);
+    }
+}
+
+// Syncs a single key/value setting (e.g. totalFeesDue, schoolCurrency) to
+// the settings table, so these also survive a cleared browser.
+async function syncSetting(key, value) {
+    if (!supabaseClient) return;
+    try {
+        const { error } = await supabaseClient.from('settings').upsert({ key, value: String(value) });
+        if (error) console.warn(`Could not sync setting "${key}" to Supabase:`, error.message);
+    } catch (e) {
+        console.warn('Could not sync setting to Supabase:', e);
     }
 }
  
@@ -218,6 +350,7 @@ function getCurrencySymbol(currency = null) {
 
 function changeCurrency(newCurrency) {
     localStorage.setItem('schoolCurrency', newCurrency);
+    syncSetting('schoolCurrency', newCurrency);
     console.log('✓ Currency changed to:', newCurrency);
 }
 
@@ -2710,6 +2843,7 @@ function saveTotalFees() {
     if (!amount || isNaN(amount)) { showNotification('Enter a valid amount', 'warning'); return; }
 
     localStorage.setItem('totalFeesDue', amount);
+    syncSetting('totalFeesDue', amount);
     document.getElementById('currentTotalFees').textContent = `Current: $${amount}`;
     showNotification('Total fees saved!', 'success');
     loadFeesFromStorage();
