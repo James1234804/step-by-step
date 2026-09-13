@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     initializeNavigation();
     initializeFilters();
+    initializeMobileMenu();
 
     // Display logged-in user's name in navbar and wire logout
     try{
@@ -121,6 +122,37 @@ function initializeNavigation() {
     });
 }
 
+// ===========================
+// MOBILE MENU (hamburger drawer)
+// ===========================
+
+function initializeMobileMenu() {
+    const menuBtn = document.getElementById('mobileMenuBtn');
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    if (!menuBtn || !sidebar || !overlay) return;
+
+    function openMenu() {
+        sidebar.classList.add('open');
+        overlay.classList.add('visible');
+    }
+    function closeMenu() {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('visible');
+    }
+
+    menuBtn.addEventListener('click', () => {
+        sidebar.classList.contains('open') ? closeMenu() : openMenu();
+    });
+    overlay.addEventListener('click', closeMenu);
+
+    // Tapping a menu item on mobile should navigate AND close the drawer,
+    // so the person lands on the new section instead of still seeing the menu.
+    document.querySelectorAll('.menu-item').forEach(item => {
+        item.addEventListener('click', closeMenu);
+    });
+}
+
 function navigateTo(section) {
     navLinks.forEach(link => link.classList.remove('active'));
     menuItems.forEach(item => item.classList.remove('active'));
@@ -156,7 +188,18 @@ if (!supabaseClient) {
     console.warn('Supabase client failed to initialize — check that the supabase-js <script> tag is in index.html and loaded before school.js.');
 }
 
-const BACKEND_KEYS = ['students', 'teachers', 'classes', 'timetables', 'fees', 'attendance'];
+// Tables with their own dedicated Supabase table (real columns, mapped below).
+const ROW_BACKEND_KEYS = ['students', 'teachers', 'classes', 'timetables', 'fees', 'attendance'];
+
+// Data that doesn't need its own table — stored as a JSON blob in the
+// existing "settings" table instead (key = 'users' / 'activities' /
+// 'attendanceNotifications', value = the JSON-stringified array). This is
+// what was missing before: guest logins, recent activity, and the
+// notification bell's data were never being synced at all.
+const JSON_BACKEND_KEYS = ['users', 'activities', 'attendanceNotifications'];
+
+// Kept for anything elsewhere in the file that still checks this name.
+const BACKEND_KEYS = ROW_BACKEND_KEYS;
 
 // Converts a local JS object (the shape the rest of school.js already
 // uses) into the column names actually defined in the Supabase tables.
@@ -250,8 +293,10 @@ function mapRowFromSupabase(table, row) {
 function saveData(key, data) {
     try {
         localStorage.setItem(key, JSON.stringify(data));
-        if (BACKEND_KEYS.includes(key)) {
+        if (ROW_BACKEND_KEYS.includes(key)) {
             syncToBackend(key, data);
+        } else if (JSON_BACKEND_KEYS.includes(key)) {
+            syncSetting(key, JSON.stringify(data));
         }
         return true;
     } catch (e) {
