@@ -306,10 +306,66 @@
                     <button class="btn btn-primary" onclick="showAddStudentForm()">+ Add New Student</button>
                 </div>
 
+                <!-- Student Stats Cards -->
+                <div class="stats-grid" id="studentStatsGrid">
+                    <div class="stat-card">
+                        <div class="stat-icon tone-blue"><span data-lucide="users"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Total Students</h3>
+                            <p id="studentStatTotal" class="stat-value">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon tone-green"><span data-lucide="check-circle"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Active</h3>
+                            <p id="studentStatActive" class="stat-value">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon tone-navy"><span data-lucide="user-x"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Inactive</h3>
+                            <p id="studentStatInactive" class="stat-value">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon tone-blue"><span data-lucide="user"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Male</h3>
+                            <p id="studentStatMale" class="stat-value">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon tone-amber"><span data-lucide="user"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Female</h3>
+                            <p id="studentStatFemale" class="stat-value">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon tone-green"><span data-lucide="user-plus"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">New This Month</h3>
+                            <p id="studentStatNew" class="stat-value">0</p>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="filters">
-                    <input type="text" id="studentSearch" placeholder="Search students..." class="search-input">
+                    <input type="text" id="studentSearch" placeholder="Search by name, parent, phone, or class..." class="search-input">
                     <select id="classFilter" class="filter-select">
                         <option value="">All Classes</option>
+                    </select>
+                    <select id="studentGenderFilter" class="filter-select">
+                        <option value="">All Genders</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                    </select>
+                    <select id="studentStatusFilter" class="filter-select">
+                        <option value="">All Status</option>
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
                     </select>
                 </div>
 
@@ -320,6 +376,12 @@
                                 <th>ID</th>
                                 <th>Name</th>
                                 <th>Class</th>
+                                <th>Parent</th>
+                                <th>Phone</th>
+                                <th>Gender</th>
+                                <th>Fee Status</th>
+                                <th>Status</th>
+                                <th>Date Added</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -435,6 +497,14 @@
                             <select id="studentClassSelect" required>
                                 <option value="">Select Class</option>
                             </select>
+                        </div>
+                        <div class="form-row">
+                            <label>Parent / Guardian Name</label>
+                            <input type="text" id="studentParentInput" placeholder="e.g. Mrs. Chikafu">
+                        </div>
+                        <div class="form-row">
+                            <label>Parent / Guardian Phone</label>
+                            <input type="text" id="studentPhoneInput" placeholder="e.g. 0771234567">
                         </div>
                         <div class="form-row">
                             <label>Gender</label>
