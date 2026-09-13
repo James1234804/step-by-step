@@ -321,16 +321,22 @@ function getData(key) {
 // insert the current snapshot. At this app's scale that's fast and avoids
 // having to diff old vs new rows.
 async function syncToBackend(key, data) {
-    if (!supabaseClient) return;
+    if (!supabaseClient) { console.warn(`Supabase client missing — could not sync "${key}"`); return; }
     try {
         await supabaseClient.from(key).delete().not('id', 'is', null);
         if (Array.isArray(data) && data.length > 0) {
             const rows = data.map(item => mapRowForSupabase(key, item));
             const { error } = await supabaseClient.from(key).insert(rows);
-            if (error) console.warn(`Supabase insert failed for ${key}:`, error.message);
+            if (error) {
+                console.warn(`✗ Supabase insert FAILED for "${key}":`, error.message);
+            } else {
+                console.log(`✓ Synced ${rows.length} record(s) to Supabase "${key}" table`);
+            }
+        } else {
+            console.log(`✓ Cleared "${key}" table in Supabase (no records to insert)`);
         }
     } catch (e) {
-        console.warn('Supabase sync failed:', e);
+        console.warn(`✗ Supabase sync threw an error for "${key}":`, e);
     }
 }
 
@@ -370,12 +376,16 @@ async function loadFromBackend() {
 // Syncs a single key/value setting (e.g. totalFeesDue, schoolCurrency) to
 // the settings table, so these also survive a cleared browser.
 async function syncSetting(key, value) {
-    if (!supabaseClient) return;
+    if (!supabaseClient) { console.warn(`Supabase client missing — could not sync "${key}"`); return; }
     try {
         const { error } = await supabaseClient.from('settings').upsert({ key, value: String(value) });
-        if (error) console.warn(`Could not sync setting "${key}" to Supabase:`, error.message);
+        if (error) {
+            console.warn(`✗ Supabase sync FAILED for setting "${key}":`, error.message);
+        } else {
+            console.log(`✓ Synced "${key}" to Supabase settings table`);
+        }
     } catch (e) {
-        console.warn('Could not sync setting to Supabase:', e);
+        console.warn(`✗ Supabase sync threw an error for setting "${key}":`, e);
     }
 }
  
