@@ -1828,6 +1828,9 @@ function openStudentProfile(studentId) {
                     <span class="status-badge ${statusClass}">${status}</span>
                 </div>
             </div>
+            <div class="profile-header-actions">
+                <button class="btn btn-small btn-warning" onclick="closeStudentProfileModal(); editStudentRecord('${student.id}');">Edit</button>
+            </div>
             <div class="profile-quick-stats">
                 <div class="profile-quick-stat">
                     <div class="qs-value">${attendanceLabel}</div>
@@ -2183,6 +2186,7 @@ function addStudentRowToTable(student, tableBody) {
         <td>${dateLabel}</td>
         <td>
             <button class="btn-small btn-info" onclick="viewStudentDetail('${student.id}')">View</button>
+            <button class="btn-small btn-secondary" onclick="editStudentRecord('${student.id}')">Edit</button>
             <button class="btn-small btn-warning" onclick="toggleStudentStatus('${student.id}')">${toggleLabel}</button>
             <button class="btn-small btn-danger" onclick="deleteStudentRecord(this, '${student.id}')">Delete</button>
         </td>
@@ -2209,14 +2213,24 @@ function addTeacherRowToTable(teacher, tableBody) {
 }
 
 // ===========================
-// ADD STUDENT FUNCTION
+// ADD / EDIT STUDENT FUNCTION
 // ===========================
 
 function showAddStudentForm() {
     openStudentModal();
 }
 
-function openStudentModal() {
+// Called from the row "Edit" button and from the profile header's Edit
+// button. Opens the same modal used for Add, but pre-filled with the
+// student's current data and switched into edit mode.
+function editStudentRecord(studentId) {
+    const students = getData('students') || [];
+    const student = students.find(s => s.id === studentId);
+    if (!student) return showNotification('Student not found', 'error');
+    openStudentModal(studentId);
+}
+
+function openStudentModal(editId = null) {
     const modal = document.getElementById('studentModal');
     if (!modal) return showNotification('Student modal not found', 'error');
     const classes = getData('classes') || window._classes || [];
@@ -2228,14 +2242,36 @@ function openStudentModal() {
     modal.setAttribute('aria-hidden', 'false');
     const form = document.getElementById('studentForm');
     if (form && form.reset) form.reset();
-    document.getElementById('studentModalTitle').textContent = 'Add Student';
+
+    modal.dataset.editId = editId || '';
+    document.getElementById('studentModalTitle').textContent = editId ? 'Edit Student' : 'Add Student';
+
     populateStudentClassSelect();
+
+    if (editId) {
+        const students = getData('students') || [];
+        const student = students.find(s => s.id === editId);
+        if (student) {
+            document.getElementById('studentNameInput').value = student.name || '';
+            document.getElementById('studentClassSelect').value = student.class || '';
+            if (document.getElementById('studentGenderSelect')) {
+                document.getElementById('studentGenderSelect').value = student.gender || '';
+            }
+            if (document.getElementById('studentParentInput')) {
+                document.getElementById('studentParentInput').value = student.parentName || '';
+            }
+            if (document.getElementById('studentPhoneInput')) {
+                document.getElementById('studentPhoneInput').value = student.phone || '';
+            }
+        }
+    }
 }
 
 function closeStudentModal() {
     const modal = document.getElementById('studentModal');
     if (!modal) return;
     modal.setAttribute('aria-hidden', 'true');
+    modal.dataset.editId = '';
 }
 
 function populateStudentClassSelect() {
@@ -2263,6 +2299,9 @@ function populateStudentClassSelect() {
 document.addEventListener('submit', function(e) {
     if (e.target && e.target.id === 'studentForm') {
         e.preventDefault();
+        const modal = document.getElementById('studentModal');
+        const editId = modal?.dataset.editId || '';
+
         const name = document.getElementById('studentNameInput').value.trim();
         const studentClass = document.getElementById('studentClassSelect').value;
         const gender = document.getElementById('studentGenderSelect')?.value || '';
@@ -2271,9 +2310,14 @@ document.addEventListener('submit', function(e) {
         if (!name || !studentClass) return showNotification('Please provide student name and class', 'warning');
         const classes = getData('classes') || [];
         if (!classes.find(c => c.name === studentClass)) return showNotification('Selected class does not exist', 'error');
-        addStudentToTable(name, studentClass, gender, parentName, phone);
+
+        if (editId) {
+            updateStudentRecord(editId, name, studentClass, gender, parentName, phone);
+        } else {
+            addStudentToTable(name, studentClass, gender, parentName, phone);
+            showNotification('Student added successfully!', 'success');
+        }
         closeStudentModal();
-        showNotification('Student added successfully!', 'success');
     }
 });
 
@@ -2319,6 +2363,38 @@ function addStudentToTable(name, studentClass, gender, parentName, phone) {
         addActivity('👤', `New student added: ${newStudent.name} (${newStudent.class})`);
     } else {
         showNotification('Error saving student!', 'error');
+    }
+}
+
+// Updates an existing student's editable fields (name, class, gender,
+// parent name, phone) while keeping id, password, status, and dateAdded
+// untouched — those aren't part of the edit form on purpose.
+function updateStudentRecord(studentId, name, studentClass, gender, parentName, phone) {
+    let students = getData('students') || [];
+    const idx = students.findIndex(s => s.id === studentId);
+    if (idx === -1) return showNotification('Student not found', 'error');
+
+    const oldClass = students[idx].class;
+    students[idx] = {
+        ...students[idx],
+        name,
+        class: studentClass,
+        gender: gender || '',
+        parentName: parentName || '',
+        phone: phone || ''
+    };
+
+    if (saveData('students', students)) {
+        loadStudentsFromStorage();
+        renderStudentStats(students);
+        if (oldClass !== studentClass) {
+            loadClassesFromStorage();
+        }
+        updateDashboardStats();
+        addActivity('✏️', `Student updated: ${name} (${studentClass})`);
+        showNotification('Student updated successfully!', 'success');
+    } else {
+        showNotification('Error updating student!', 'error');
     }
 }
 
