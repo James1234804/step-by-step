@@ -524,11 +524,12 @@
 
             <!-- Student Profile Modal -->
             <div id="studentProfileModal" class="modal" aria-hidden="true">
-                <div class="modal-content">
+                <div class="modal-content profile-modal-content">
                     <div class="modal-header">
                         <h3 id="studentProfileTitle">Student Profile</h3>
                         <button class="modal-close" onclick="closeStudentProfileModal()">✕</button>
                     </div>
+                    <div id="profileHeaderInfo"></div>
                     <div class="profile-tabs" style="margin-bottom:0.75rem;">
                         <button id="profileTab-overview" class="profile-tab active" onclick="showStudentProfileTab('overview')">Overview</button>
                         <button id="profileTab-attendance" class="profile-tab" onclick="showStudentProfileTab('attendance')">Attendance</button>
