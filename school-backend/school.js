@@ -1763,6 +1763,23 @@ function showAddTimetableEntry() {
     }
 }
 
+// Shared by both the profile header quick-stat and the Attendance tab, so
+// the two never show slightly different numbers for the same student.
+function computeStudentAttendanceSummary(studentId) {
+    const teacherRecords = (getData('attendance') || []).filter(r => r.studentId === studentId);
+    const legacyRecords = (getData('attendanceRecords') || []).filter(r => r.studentId === studentId);
+    const combined = [...teacherRecords, ...legacyRecords].reduce((acc, cur) => {
+        const key = `${cur.date}|${cur.class||''}`;
+        if (!acc.map[key]) { acc.map[key] = true; acc.list.push(cur); }
+        return acc;
+    }, { map: {}, list: [] }).list;
+
+    const total = combined.length;
+    const present = combined.filter(r => (r.status || '').toLowerCase() === 'present').length;
+    const pct = total === 0 ? null : Math.round((present / total) * 100);
+    return { total, present, pct, records: combined };
+}
+
 function openStudentProfile(studentId) {
     const students = getData('students') || [];
     const student = students.find(s => s.id === studentId);
@@ -1776,21 +1793,87 @@ function openStudentProfile(studentId) {
     const classes = getData('classes') || window._classes || [];
     const cls = classes.find(c => c.name === student.class);
     const classTeacher = cls ? (cls.teacher || '—') : '—';
-    const overviewEl = document.getElementById('profileOverviewPanel');
-    overviewEl.innerHTML = `
-        <div style="display:flex; gap:1.25rem; flex-wrap:wrap;">
-            <div style="min-width:220px;">
-                <p><strong>Name:</strong> ${student.name}</p>
-                <p><strong>ID:</strong> ${student.id}</p>
-                <p><strong>Class:</strong> ${student.class}</p>
-                <p><strong>Class Teacher:</strong> ${classTeacher}</p>
+
+    const status = student.status || 'Active';
+    const statusClass = status === 'Active' ? 'status-active' : 'status-inactive';
+    const initial = (student.name || '?').trim().charAt(0).toUpperCase();
+
+    const attendanceSummary = computeStudentAttendanceSummary(studentId);
+    const attendanceLabel = attendanceSummary.pct === null ? '—' : attendanceSummary.pct + '%';
+
+    const fees = getData('fees') || [];
+    const totalDue = parseInt(localStorage.getItem('totalFeesDue') || '0');
+    const totalPaid = fees.filter(f => f.studentId === studentId).reduce((sum, f) => sum + (parseInt(f.amount) || 0), 0);
+    const balance = Math.max(0, totalDue - totalPaid);
+    const feeStatus = getStudentFeeStatusBadge(studentId);
+
+    const dateLabel = student.dateAdded
+        ? new Date(student.dateAdded).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+        : '—';
+
+    // The header — everything essential about this student at a glance,
+    // before you even pick a tab.
+    const headerEl = document.getElementById('profileHeaderInfo');
+    headerEl.innerHTML = `
+        <div class="profile-header">
+            <div class="profile-avatar">${initial}</div>
+            <div class="profile-header-main">
+                <h2>${student.name}</h2>
+                <div class="profile-header-meta">
+                    <span>${student.id}</span>
+                    <span>&middot;</span>
+                    <span>${student.class}</span>
+                    <span>&middot;</span>
+                    <span>${student.gender || 'Gender not set'}</span>
+                    <span class="status-badge ${statusClass}">${status}</span>
+                </div>
             </div>
-            <div style="flex:1; min-width:220px;">
-                <p><strong>Primary Parent/Guardian:</strong> —</p>
-                <p><strong>Phone:</strong> —</p>
-                <p style="margin-top:0.6rem;"><button class="btn btn-small btn-info" onclick="showStudentProfileTab('contacts')">Add/View Contacts</button></p>
+            <div class="profile-quick-stats">
+                <div class="profile-quick-stat">
+                    <div class="qs-value">${attendanceLabel}</div>
+                    <div class="qs-label">Attendance</div>
+                </div>
+                <div class="profile-quick-stat">
+                    <div class="qs-value">${formatCurrency(balance.toString())}</div>
+                    <div class="qs-label">Balance Due</div>
+                </div>
+                <div class="profile-quick-stat">
+                    <div class="qs-value"><span class="status-badge ${feeStatus.cls}">${feeStatus.label}</span></div>
+                    <div class="qs-label">Fees</div>
+                </div>
             </div>
         </div>
+    `;
+
+    const overviewEl = document.getElementById('profileOverviewPanel');
+    overviewEl.innerHTML = `
+        <div class="profile-detail-grid">
+            <div class="profile-detail-item">
+                <div class="pd-label">Class Teacher</div>
+                <div class="pd-value">${classTeacher}</div>
+            </div>
+            <div class="profile-detail-item">
+                <div class="pd-label">Parent / Guardian</div>
+                <div class="pd-value">${student.parentName || '—'}</div>
+            </div>
+            <div class="profile-detail-item">
+                <div class="pd-label">Parent Phone</div>
+                <div class="pd-value">${student.phone || '—'}</div>
+            </div>
+            <div class="profile-detail-item">
+                <div class="pd-label">Date Added</div>
+                <div class="pd-value">${dateLabel}</div>
+            </div>
+            <div class="profile-detail-item">
+                <div class="pd-label">Fees Paid</div>
+                <div class="pd-value">${formatCurrency(totalPaid.toString())} of ${formatCurrency(totalDue.toString())}</div>
+            </div>
+            <div class="profile-detail-item">
+                <div class="pd-label">Attendance Record</div>
+                <div class="pd-value">${attendanceSummary.present} present / ${attendanceSummary.total} total</div>
+            </div>
+        </div>
+        <p style="margin-top:1.1rem;"><button class="btn btn-small btn-info" onclick="showStudentProfileTab('contacts')">View / Add Parent Contact Log</button></p>
     `;
 
     renderStudentAttendance(studentId);
@@ -1822,25 +1905,14 @@ function renderStudentAttendance(studentId) {
     const panel = document.getElementById('profileAttendancePanel');
     if (!panel) return;
 
-    const teacherRecords = (getData('attendance') || []).filter(r => r.studentId === studentId);
-    const legacyRecords = (getData('attendanceRecords') || []).filter(r => r.studentId === studentId);
-
-    const combined = [...teacherRecords, ...legacyRecords]
-        .reduce((acc, cur) => {
-            const key = `${cur.date}|${cur.class||''}`;
-            if (!acc.map[key]) { acc.map[key] = true; acc.list.push(cur); }
-            return acc;
-        }, { map: {}, list: [] }).list
-        .sort((a,b)=> new Date(b.date) - new Date(a.date));
-
-    const total = combined.length;
-    const presentCount = combined.filter(r => (r.status || '').toLowerCase() === 'present').length;
-    const absentCount = total - presentCount;
-    const attendancePct = total === 0 ? '-' : Math.round((presentCount / total) * 100) + '%';
+    const summary = computeStudentAttendanceSummary(studentId);
+    const combined = [...summary.records].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const absentCount = summary.total - summary.present;
+    const attendancePct = summary.pct === null ? '-' : summary.pct + '%';
 
     let html = `<div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:center; margin-bottom:0.5rem;">
-        <div style="min-width:160px;"><strong>Total records:</strong> ${total}</div>
-        <div style="min-width:160px;"><strong>Present:</strong> ${presentCount}</div>
+        <div style="min-width:160px;"><strong>Total records:</strong> ${summary.total}</div>
+        <div style="min-width:160px;"><strong>Present:</strong> ${summary.present}</div>
         <div style="min-width:160px;"><strong>Absent:</strong> ${absentCount}</div>
         <div style="min-width:160px;"><strong>Attendance %:</strong> ${attendancePct}</div>
     </div>`;
@@ -1960,19 +2032,43 @@ function deleteParentContact(contactId, studentId) {
 function renderStudentFees(studentId) {
     const panel = document.getElementById('profileFeesPanel');
     if (!panel) return;
-    const fees = (getData('fees') || []).filter(f => f.studentId === studentId);
+    const fees = (getData('fees') || []).filter(f => f.studentId === studentId)
+        .sort((a, b) => new Date(b.datePaid) - new Date(a.datePaid));
+    const totalDue = parseInt(localStorage.getItem('totalFeesDue') || '0');
+    const totalPaid = fees.reduce((sum, f) => sum + (parseInt(f.amount) || 0), 0);
+    const balance = Math.max(0, totalDue - totalPaid);
+    const feeStatus = getStudentFeeStatusBadge(studentId);
 
-    let html = '<div style="margin-top:0.25rem;">';
+    let html = `
+        <div class="payment-balance-row" style="margin-bottom:1.1rem;">
+            <div class="payment-balance-box">
+                <div class="payment-balance-label">Total Due</div>
+                <div class="payment-balance-value">${formatCurrency(totalDue.toString())}</div>
+            </div>
+            <div class="payment-balance-box">
+                <div class="payment-balance-label">Paid So Far</div>
+                <div class="payment-balance-value tone-paid">${formatCurrency(totalPaid.toString())}</div>
+            </div>
+            <div class="payment-balance-box">
+                <div class="payment-balance-label">Balance</div>
+                <div class="payment-balance-value tone-due">${formatCurrency(balance.toString())}</div>
+            </div>
+            <div class="payment-balance-box">
+                <div class="payment-balance-label">Status</div>
+                <div style="margin-top:4px;"><span class="status-badge ${feeStatus.cls}">${feeStatus.label}</span></div>
+            </div>
+        </div>
+    `;
+
     if (fees.length === 0) {
         html += '<p style="color:#999;">No fee records for this student.</p>';
     } else {
-        html += '<table class="table" style="margin-top:0.5rem;"><thead><tr><th>Amount</th><th>Status</th><th>Date</th></tr></thead><tbody>';
+        html += '<table class="table"><thead><tr><th>Amount</th><th>Term</th><th>Year</th><th>Date Paid</th></tr></thead><tbody>';
         fees.forEach(f => {
-            html += `<tr><td>${formatCurrency(f.amount)}</td><td><span class="status-badge ${f.status==='paid'?'status-paid':'status-pending'}">${f.status}</span></td><td>${f.datePaid || '-'}</td></tr>`;
+            html += `<tr><td>${formatCurrency(f.amount)}</td><td>${f.term || '—'}</td><td>${f.year || '—'}</td><td>${f.datePaid || '-'}</td></tr>`;
         });
         html += '</tbody></table>';
     }
-    html += '</div>';
     panel.innerHTML = html;
 }
 
