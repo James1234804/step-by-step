@@ -989,6 +989,46 @@ h1, h2, h3 { letter-spacing: -0.01em; }
     text-align: center;
 }
 
+.table-actions {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    flex-wrap: nowrap;
+}
+
+.icon-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    border: 1px solid var(--border-color);
+    background: #fff;
+    color: var(--muted-text);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    flex-shrink: 0;
+    padding: 0;
+}
+
+.icon-action-btn svg {
+    width: 15px;
+    height: 15px;
+    stroke-width: 2px;
+    pointer-events: none;
+}
+
+.icon-action-btn:hover { background: var(--light-bg); }
+.icon-action-btn.action-view:hover { color: var(--slate); border-color: #CBD5E1; background: #F1F5F9; }
+.icon-action-btn.action-edit:hover { color: #B45309; border-color: #FBEBC0; background: #FDF6E3; }
+.icon-action-btn.action-toggle:hover { color: #B45309; border-color: #FBEBC0; background: #FDF6E3; }
+.icon-action-btn.action-delete:hover { color: var(--danger-color); border-color: #FBD5D5; background: #FDEAEA; }
+
+.table-compact th { padding: 0.65rem 0.9rem; font-size: 0.68rem; }
+.table-compact td { padding: 0.6rem 0.9rem; font-size: 0.84rem; white-space: nowrap; }
+.table-compact td:nth-child(2) { font-weight: 600; color: var(--dark-text); }
+
 /* ===========================
    TABLES
    =========================== */
