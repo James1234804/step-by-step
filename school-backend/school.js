@@ -2163,7 +2163,6 @@ function getStudentFeeStatusBadge(studentId) {
     if (paid > 0) return { label: 'Partial', cls: 'status-warning' };
     return { label: 'Pending', cls: 'status-pending' };
 }
-
 function addStudentRowToTable(student, tableBody) {
     const status = student.status || 'Active';
     const statusClass = status === 'Active' ? 'status-active' : 'status-inactive';
@@ -2193,7 +2192,6 @@ function addStudentRowToTable(student, tableBody) {
     `;
     tableBody.appendChild(newRow);
 }
-
 function addTeacherRowToTable(teacher, tableBody) {
     const newRow = document.createElement('tr');
     newRow.innerHTML = `
