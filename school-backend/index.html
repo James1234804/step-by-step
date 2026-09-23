@@ -303,7 +303,17 @@
             <section id="students-section" class="content-section">
                 <div class="section-header">
                     <h1>Students Management</h1>
-                    <button class="btn btn-primary" onclick="showAddStudentForm()">+ Add New Student</button>
+                    <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+                        <div class="academic-year-pill" title="The school's current academic year — everyone's form level is calculated from this">
+                            <span data-lucide="calendar-range"></span>
+                            <span>Academic Year: <strong id="currentAcademicYearDisplay">—</strong></span>
+                        </div>
+                        <button class="btn btn-secondary" onclick="startNewAcademicYear()">
+                            <span data-lucide="rotate-cw" style="width:15px; height:15px; vertical-align:-2px;"></span>
+                            Start New Academic Year
+                        </button>
+                        <button class="btn btn-primary" onclick="showAddStudentForm()">+ Add New Student</button>
+                    </div>
                 </div>
 
                 <!-- Student Stats Cards -->
@@ -537,11 +547,13 @@
                         <button id="profileTab-attendance" class="profile-tab" onclick="showStudentProfileTab('attendance')">Attendance</button>
                         <button id="profileTab-contacts" class="profile-tab" onclick="showStudentProfileTab('contacts')">Parent Contacts</button>
                         <button id="profileTab-fees" class="profile-tab" onclick="showStudentProfileTab('fees')">Fees</button>
+                        <button id="profileTab-records" class="profile-tab" onclick="showStudentProfileTab('records')">Records</button>
                     </div>
                     <div class="profile-panel" id="profileOverviewPanel"></div>
                     <div class="profile-panel" id="profileAttendancePanel" style="display:none;"></div>
                     <div class="profile-panel" id="profileContactsPanel" style="display:none;"></div>
                     <div class="profile-panel" id="profileFeesPanel" style="display:none;"></div>
+                    <div class="profile-panel" id="profileRecordsPanel" style="display:none;"></div>
                 </div>
             </div>
 
