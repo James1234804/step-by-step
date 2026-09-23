@@ -989,6 +989,13 @@ h1, h2, h3 { letter-spacing: -0.01em; }
     text-align: center;
 }
 
+/* ===========================
+   COMPACT ICON ACTION BUTTONS
+   Small square icon-only buttons laid out in a single row, used for
+   table row actions (View / Edit / Toggle / Delete) instead of stacked
+   full-word text buttons.
+   =========================== */
+
 .table-actions {
     display: flex;
     gap: 0.4rem;
@@ -1019,15 +1026,33 @@ h1, h2, h3 { letter-spacing: -0.01em; }
     pointer-events: none;
 }
 
-.icon-action-btn:hover { background: var(--light-bg); }
-.icon-action-btn.action-view:hover { color: var(--slate); border-color: #CBD5E1; background: #F1F5F9; }
-.icon-action-btn.action-edit:hover { color: #B45309; border-color: #FBEBC0; background: #FDF6E3; }
-.icon-action-btn.action-toggle:hover { color: #B45309; border-color: #FBEBC0; background: #FDF6E3; }
-.icon-action-btn.action-delete:hover { color: var(--danger-color); border-color: #FBD5D5; background: #FDEAEA; }
+.icon-action-btn:hover {
+    background: var(--light-bg);
+}
 
-.table-compact th { padding: 0.65rem 0.9rem; font-size: 0.68rem; }
-.table-compact td { padding: 0.6rem 0.9rem; font-size: 0.84rem; white-space: nowrap; }
-.table-compact td:nth-child(2) { font-weight: 600; color: var(--dark-text); }
+.icon-action-btn.action-view:hover {
+    color: var(--slate);
+    border-color: #CBD5E1;
+    background: #F1F5F9;
+}
+
+.icon-action-btn.action-edit:hover {
+    color: #B45309;
+    border-color: #FBEBC0;
+    background: #FDF6E3;
+}
+
+.icon-action-btn.action-toggle:hover {
+    color: #B45309;
+    border-color: #FBEBC0;
+    background: #FDF6E3;
+}
+
+.icon-action-btn.action-delete:hover {
+    color: var(--danger-color);
+    border-color: #FBD5D5;
+    background: #FDEAEA;
+}
 
 /* ===========================
    TABLES
@@ -1082,6 +1107,24 @@ h1, h2, h3 { letter-spacing: -0.01em; }
     text-align: center;
     color: var(--muted-text);
     padding: 2.5rem 1rem;
+}
+
+/* Compact table variant — smaller, denser, professional look. Used for
+   the Students table where names must never wrap onto a second line. */
+.table-compact th {
+    padding: 0.65rem 0.9rem;
+    font-size: 0.68rem;
+}
+
+.table-compact td {
+    padding: 0.6rem 0.9rem;
+    font-size: 0.84rem;
+    white-space: nowrap;
+}
+
+.table-compact td:nth-child(2) {
+    font-weight: 600;
+    color: var(--dark-text);
 }
 
 /* ===========================
@@ -1424,6 +1467,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
     flex-wrap: wrap;
     align-items: center;
 }
+.profile-header-actions { flex-shrink: 0; }
 .profile-quick-stats { display: flex; gap: 0.75rem; flex-wrap: wrap; }
 .profile-quick-stat {
     background: var(--light-bg);
