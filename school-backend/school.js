@@ -2124,7 +2124,7 @@ function loadStudentsFromStorage() {
         });
     } else {
         console.log('No students in storage');
-        tableBody.innerHTML = '<tr class="table-empty-row"><td colspan="10">No students added yet.</td></tr>';
+        tableBody.innerHTML = '<tr class="table-empty-row"><td colspan="8">No students added yet.</td></tr>';
     }
 
     renderStudentStats(students || []);
@@ -2163,13 +2163,20 @@ function getStudentFeeStatusBadge(studentId) {
     if (paid > 0) return { label: 'Partial', cls: 'status-warning' };
     return { label: 'Pending', cls: 'status-pending' };
 }
+
+// Renders one student row. Parent name and phone are intentionally NOT
+// shown as columns here (they're still visible inside the "View" profile
+// popup) — this keeps the main table compact. Actions are small icon-only
+// buttons (eye / pencil / toggle / trash) laid out in a single row instead
+// of stacked text buttons.
 function addStudentRowToTable(student, tableBody) {
     const status = student.status || 'Active';
     const statusClass = status === 'Active' ? 'status-active' : 'status-inactive';
     const dateLabel = student.dateAdded
         ? new Date(student.dateAdded).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
         : '—';
-    const toggleLabel = status === 'Active' ? 'Deactivate' : 'Activate';
+    const toggleIcon = status === 'Active' ? 'user-x' : 'user-check';
+    const toggleTitle = status === 'Active' ? 'Deactivate' : 'Activate';
     const feeStatus = getStudentFeeStatusBadge(student.id);
 
     const newRow = document.createElement('tr');
@@ -2177,21 +2184,26 @@ function addStudentRowToTable(student, tableBody) {
         <td>${student.id}</td>
         <td>${student.name}</td>
         <td>${student.class}</td>
-        <td>${student.parentName || '—'}</td>
-        <td>${student.phone || '—'}</td>
         <td>${student.gender || '—'}</td>
         <td><span class="status-badge ${feeStatus.cls}">${feeStatus.label}</span></td>
         <td><span class="status-badge ${statusClass}">${status}</span></td>
         <td>${dateLabel}</td>
         <td>
-            <button class="btn-small btn-info" onclick="viewStudentDetail('${student.id}')">View</button>
-            <button class="btn-small btn-secondary" onclick="editStudentRecord('${student.id}')">Edit</button>
-            <button class="btn-small btn-warning" onclick="toggleStudentStatus('${student.id}')">${toggleLabel}</button>
-            <button class="btn-small btn-danger" onclick="deleteStudentRecord(this, '${student.id}')">Delete</button>
+            <div class="table-actions">
+                <button class="icon-action-btn action-view" title="View" onclick="viewStudentDetail('${student.id}')"><span data-lucide="eye"></span></button>
+                <button class="icon-action-btn action-edit" title="Edit" onclick="editStudentRecord('${student.id}')"><span data-lucide="pencil"></span></button>
+                <button class="icon-action-btn action-toggle" title="${toggleTitle}" onclick="toggleStudentStatus('${student.id}')"><span data-lucide="${toggleIcon}"></span></button>
+                <button class="icon-action-btn action-delete" title="Delete" onclick="deleteStudentRecord(this, '${student.id}')"><span data-lucide="trash-2"></span></button>
+            </div>
         </td>
     `;
     tableBody.appendChild(newRow);
+    // These icon spans are injected after the page's initial lucide.createIcons()
+    // call, so they need this re-run every time a row is added or the icons
+    // stay as empty <span> tags.
+    if (window.lucide) lucide.createIcons();
 }
+
 function addTeacherRowToTable(teacher, tableBody) {
     const newRow = document.createElement('tr');
     newRow.innerHTML = `
@@ -2472,7 +2484,7 @@ function deleteStudentRecord(button, studentId) {
 
             const tableBody = document.getElementById('studentsTableBody');
             if (tableBody && tableBody.children.length === 0) {
-                tableBody.innerHTML = '<tr class="table-empty-row"><td colspan="10">No students added yet.</td></tr>';
+                tableBody.innerHTML = '<tr class="table-empty-row"><td colspan="8">No students added yet.</td></tr>';
             }
             renderStudentStats(students);
 
