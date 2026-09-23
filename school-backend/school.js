@@ -189,7 +189,7 @@ if (!supabaseClient) {
 }
 
 // Tables with their own dedicated Supabase table (real columns, mapped below).
-const ROW_BACKEND_KEYS = ['students', 'teachers', 'classes', 'timetables', 'fees', 'attendance'];
+const ROW_BACKEND_KEYS = ['students', 'teachers', 'classes', 'timetables', 'fees', 'attendance', 'academic_history'];
 
 // Data that doesn't need its own table — stored as a JSON blob in the
 // existing "settings" table instead (key = 'users' / 'activities' /
@@ -255,7 +255,9 @@ function mapRowForSupabase(table, item) {
                 status: item.status || 'Active',
                 date_added: item.dateAdded || '',
                 parent_name: item.parentName || '',
-                phone: item.phone || ''
+                phone: item.phone || '',
+                enrollment_year: item.enrollmentYear || null,
+                graduation_year: item.graduationYear || null
             };
         case 'teachers':
             return {
@@ -267,6 +269,15 @@ function mapRowForSupabase(table, item) {
                 status: item.status || '',
                 username: item.username || '',
                 class: item.class || ''
+            };
+        case 'academic_history':
+            return {
+                id: item.id,
+                student_id: item.studentId,
+                academic_year: item.academicYear,
+                form_level: item.formLevel,
+                section: item.section || '',
+                fees_status: item.feesStatus || ''
             };
         default:
             return item;
@@ -286,9 +297,11 @@ function mapRowFromSupabase(table, row) {
         case 'attendance':
             return { id: row.id, studentId: row.student_id, class: row.class, date: row.date, status: row.status, teacher: row.teacher, note: row.note };
         case 'students':
-            return { id: row.id, name: row.name, class: row.class, gender: row.gender, password: row.password, status: row.status || 'Active', dateAdded: row.date_added || '', parentName: row.parent_name || '', phone: row.phone || '' };
+            return { id: row.id, name: row.name, class: row.class, gender: row.gender, password: row.password, status: row.status || 'Active', dateAdded: row.date_added || '', parentName: row.parent_name || '', phone: row.phone || '', enrollmentYear: row.enrollment_year || null, graduationYear: row.graduation_year || null };
         case 'teachers':
             return { id: row.id, name: row.name, department: row.department, email: row.email, phone: row.phone, status: row.status, username: row.username, class: row.class };
+        case 'academic_history':
+            return { id: row.id, studentId: row.student_id, academicYear: row.academic_year, formLevel: row.form_level, section: row.section, feesStatus: row.fees_status };
         default:
             return row;
     }
@@ -428,6 +441,157 @@ function formatCurrency(amount, currency = null) {
 }
 
 // ===========================
+// ACADEMIC YEAR HELPERS
+// ===========================
+// The school's "current" academic year is stored once, so promoting
+// everyone each year is just updating this single value instead of
+// touching every student record.
+
+function getCurrentAcademicYear() {
+    const saved = localStorage.getItem('currentAcademicYear');
+    return saved ? parseInt(saved) : new Date().getFullYear();
+}
+
+function setCurrentAcademicYear(year) {
+    localStorage.setItem('currentAcademicYear', String(year));
+    syncSetting('currentAcademicYear', String(year));
+}
+
+// A student's form level is NEVER stored directly — it's always
+// calculated from enrollmentYear + the current academic year, so it
+// advances automatically every year without anyone editing records.
+function computeCurrentFormLevel(enrollmentYear) {
+    if (!enrollmentYear) return null;
+    return getCurrentAcademicYear() - parseInt(enrollmentYear) + 1;
+}
+
+function formLevelLabel(enrollmentYear) {
+    const level = computeCurrentFormLevel(enrollmentYear);
+    if (level === null) return 'Enrollment year not set';
+    if (level < 1) return 'Not yet enrolled';
+    if (level > 4) return 'Graduated (O-Level)';
+    return `Form ${level}`;
+}
+
+// Pulls the section letter off the end of a class name like "Form 2-B" -> "B"
+function getSectionLetter(className) {
+    if (!className) return '';
+    const parts = String(className).split('-');
+    return parts.length > 1 ? parts[parts.length - 1].trim() : '';
+}
+
+// Rolls the whole school forward one academic year:
+//  1. Snapshots every student's current form/class/fee-status into
+//     academic_history (so the outgoing year's record is preserved).
+//  2. Advances the stored "current academic year" by one, which — because
+//     form level is always calculated, never stored — instantly updates
+//     every student's displayed form level and their class assignment
+//     (same section letter, form + 1). Anyone who would move past Form 4
+//     is marked Graduated instead of reassigned to a nonexistent class.
+async function startNewAcademicYear() {
+    const students = getData('students') || [];
+    const classes = getData('classes') || window._classes || [];
+    const fees = getData('fees') || [];
+    const outgoingYear = getCurrentAcademicYear();
+
+    if (students.length === 0) {
+        showNotification('No students to promote yet.', 'warning');
+        return;
+    }
+
+    if (!confirm(`Start a new academic year?\n\nThis will:\n• Snapshot all ${students.length} students' ${outgoingYear} records into their history\n• Advance every student to their next form level\n• Mark anyone past Form 4 as graduated\n\nCurrent year: ${outgoingYear} → New year: ${outgoingYear + 1}\n\nContinue?`)) {
+        return;
+    }
+
+    const totalDue = parseInt(localStorage.getItem('totalFeesDue') || '0');
+    let history = getData('academic_history') || [];
+    if (!Array.isArray(history)) history = [];
+
+    let graduatedCount = 0;
+    let promotedCount = 0;
+
+    students.forEach(student => {
+        const outgoingLevel = computeCurrentFormLevel(student.enrollmentYear);
+        const paid = fees.filter(f => f.studentId === student.id).reduce((sum, f) => sum + (parseInt(f.amount) || 0), 0);
+        const feesStatus = totalDue > 0 && paid >= totalDue ? 'paid' : (paid > 0 ? 'partial' : 'pending');
+
+        // 1. Snapshot the outgoing year into history (only if we can tell
+        // what form they were actually in this year).
+        if (outgoingLevel !== null) {
+            history.push({
+                id: 'AH' + Date.now() + '-' + student.id,
+                studentId: student.id,
+                academicYear: outgoingYear,
+                formLevel: outgoingLevel,
+                section: getSectionLetter(student.class),
+                feesStatus: feesStatus
+            });
+        }
+
+        // 2. Figure out what happens to them next year.
+        const nextLevel = outgoingLevel !== null ? outgoingLevel + 1 : null;
+        if (nextLevel !== null && nextLevel > 4) {
+            student.status = 'Inactive';
+            student.graduationYear = outgoingYear;
+            graduatedCount++;
+        } else if (nextLevel !== null) {
+            const section = getSectionLetter(student.class);
+            const nextClassName = `Form ${nextLevel}-${section}`;
+            const nextClassExists = classes.find(c => c.name === nextClassName);
+            if (nextClassExists) {
+                student.class = nextClassName;
+                promotedCount++;
+            }
+            // If the matching next-year class doesn't exist yet, leave the
+            // student's class as-is for now — create the class, then the
+            // student's calculated form level will still show correctly
+            // even before they're manually reassigned.
+        }
+    });
+
+    saveData('academic_history', history);
+    saveData('students', students);
+    setCurrentAcademicYear(outgoingYear + 1);
+
+    loadStudentsFromStorage();
+    loadClassesFromStorage();
+    updateDashboardStats();
+    addActivity('📅', `Started academic year ${outgoingYear + 1} — ${promotedCount} promoted, ${graduatedCount} graduated`);
+    showNotification(`Academic year ${outgoingYear + 1} started — ${promotedCount} students promoted, ${graduatedCount} graduated.`, 'success');
+
+    const yearDisplay = document.getElementById('currentAcademicYearDisplay');
+    if (yearDisplay) yearDisplay.textContent = getCurrentAcademicYear();
+}
+
+// Renders a student's year-by-year academic_history rows in the Records tab.
+function renderStudentAcademicHistory(studentId) {
+    const panel = document.getElementById('profileRecordsPanel');
+    if (!panel) return;
+
+    const history = (getData('academic_history') || [])
+        .filter(h => h.studentId === studentId)
+        .sort((a, b) => a.academicYear - b.academicYear);
+
+    const students = getData('students') || [];
+    const student = students.find(s => s.id === studentId);
+    const currentLevel = student ? computeCurrentFormLevel(student.enrollmentYear) : null;
+
+    let html = `<div style="margin-bottom:0.75rem;"><strong>Enrolled:</strong> ${student && student.enrollmentYear ? student.enrollmentYear : '—'} &middot; <strong>Current:</strong> ${student ? formLevelLabel(student.enrollmentYear) : '—'}</div>`;
+
+    if (history.length === 0) {
+        html += '<p style="color:#999; padding:0.75rem;">No past academic years recorded yet. Records are created automatically when "Start New Academic Year" is run.</p>';
+    } else {
+        html += '<table class="table"><thead><tr><th>Academic Year</th><th>Form</th><th>Section</th><th>Fees</th></tr></thead><tbody>';
+        history.forEach(h => {
+            html += `<tr><td>${h.academicYear}</td><td>Form ${h.formLevel}</td><td>${h.section || '—'}</td><td>${h.feesStatus || '—'}</td></tr>`;
+        });
+        html += '</tbody></table>';
+    }
+
+    panel.innerHTML = html;
+}
+
+// ===========================
 // LOAD ALL DATA FROM STORAGE
 // ===========================
 
@@ -442,6 +606,9 @@ function loadAllData() {
     populateTimetableClassSelect();
 
     renderNotificationDropdown();
+
+    const yearDisplay = document.getElementById('currentAcademicYearDisplay');
+    if (yearDisplay) yearDisplay.textContent = getCurrentAcademicYear();
 
     const ttSelect = document.getElementById('timetableClassSelect');
     if (ttSelect) {
@@ -1856,6 +2023,10 @@ function openStudentProfile(studentId) {
                 <div class="pd-value">${classTeacher}</div>
             </div>
             <div class="profile-detail-item">
+                <div class="pd-label">Academic Year Level</div>
+                <div class="pd-value">${formLevelLabel(student.enrollmentYear)}${student.enrollmentYear ? ' — enrolled ' + student.enrollmentYear : ''}</div>
+            </div>
+            <div class="profile-detail-item">
                 <div class="pd-label">Parent / Guardian</div>
                 <div class="pd-value">${student.parentName || '—'}</div>
             </div>
@@ -1882,6 +2053,7 @@ function openStudentProfile(studentId) {
     renderStudentAttendance(studentId);
     renderParentContacts(studentId);
     renderStudentFees(studentId);
+    renderStudentAcademicHistory(studentId);
 
     showStudentProfileTab('overview');
 
@@ -1895,7 +2067,7 @@ function closeStudentProfileModal() {
 }
 
 function showStudentProfileTab(tab) {
-    const tabs = ['overview', 'attendance', 'contacts', 'fees'];
+    const tabs = ['overview', 'attendance', 'contacts', 'fees', 'records'];
     tabs.forEach(t => {
         const btn = document.getElementById(`profileTab-${t}`);
         const panel = document.getElementById(`profile${t.charAt(0).toUpperCase() + t.slice(1)}Panel`);
@@ -2264,6 +2436,9 @@ function openStudentModal(editId = null) {
         if (student) {
             document.getElementById('studentNameInput').value = student.name || '';
             document.getElementById('studentClassSelect').value = student.class || '';
+            if (document.getElementById('studentEnrollmentYearInput')) {
+                document.getElementById('studentEnrollmentYearInput').value = student.enrollmentYear || '';
+            }
             if (document.getElementById('studentGenderSelect')) {
                 document.getElementById('studentGenderSelect').value = student.gender || '';
             }
@@ -2314,6 +2489,7 @@ document.addEventListener('submit', function(e) {
 
         const name = document.getElementById('studentNameInput').value.trim();
         const studentClass = document.getElementById('studentClassSelect').value;
+        const enrollmentYear = document.getElementById('studentEnrollmentYearInput')?.value.trim() || '';
         const gender = document.getElementById('studentGenderSelect')?.value || '';
         const parentName = document.getElementById('studentParentInput')?.value.trim() || '';
         const phone = document.getElementById('studentPhoneInput')?.value.trim() || '';
@@ -2322,9 +2498,9 @@ document.addEventListener('submit', function(e) {
         if (!classes.find(c => c.name === studentClass)) return showNotification('Selected class does not exist', 'error');
 
         if (editId) {
-            updateStudentRecord(editId, name, studentClass, gender, parentName, phone);
+            updateStudentRecord(editId, name, studentClass, gender, parentName, phone, enrollmentYear);
         } else {
-            addStudentToTable(name, studentClass, gender, parentName, phone);
+            addStudentToTable(name, studentClass, gender, parentName, phone, enrollmentYear);
             showNotification('Student added successfully!', 'success');
         }
         closeStudentModal();
@@ -2337,7 +2513,7 @@ document.addEventListener('click', function(e) {
     if (modal.getAttribute('aria-hidden') === 'false' && e.target === modal) closeStudentModal();
 });
 
-function addStudentToTable(name, studentClass, gender, parentName, phone) {
+function addStudentToTable(name, studentClass, gender, parentName, phone, enrollmentYear) {
     console.log('Adding student:', name);
     
     let students = getData('students') || [];
@@ -2357,7 +2533,8 @@ function addStudentToTable(name, studentClass, gender, parentName, phone) {
         phone: phone || '',
         password: nextId,
         status: 'Active',
-        dateAdded: new Date().toISOString()
+        dateAdded: new Date().toISOString(),
+        enrollmentYear: enrollmentYear ? parseInt(enrollmentYear) : null
     };
     students.push(newStudent);
     
@@ -2377,9 +2554,10 @@ function addStudentToTable(name, studentClass, gender, parentName, phone) {
 }
 
 // Updates an existing student's editable fields (name, class, gender,
-// parent name, phone) while keeping id, password, status, and dateAdded
-// untouched — those aren't part of the edit form on purpose.
-function updateStudentRecord(studentId, name, studentClass, gender, parentName, phone) {
+// parent name, phone, enrollment year) while keeping id, password,
+// status, and dateAdded untouched — those aren't part of the edit form
+// on purpose.
+function updateStudentRecord(studentId, name, studentClass, gender, parentName, phone, enrollmentYear) {
     let students = getData('students') || [];
     const idx = students.findIndex(s => s.id === studentId);
     if (idx === -1) return showNotification('Student not found', 'error');
@@ -2391,7 +2569,8 @@ function updateStudentRecord(studentId, name, studentClass, gender, parentName, 
         class: studentClass,
         gender: gender || '',
         parentName: parentName || '',
-        phone: phone || ''
+        phone: phone || '',
+        enrollmentYear: enrollmentYear ? parseInt(enrollmentYear) : (students[idx].enrollmentYear || null)
     };
 
     if (saveData('students', students)) {
@@ -2478,8 +2657,10 @@ function deleteStudentRecord(button, studentId) {
         attendanceLegacy = attendanceLegacy.filter(a => a.studentId !== studentId);
         let attendanceTeacher = getData('attendance') || [];
         attendanceTeacher = attendanceTeacher.filter(a => a.studentId !== studentId);
+        let history = getData('academic_history') || [];
+        history = history.filter(h => h.studentId !== studentId);
         
-        if (saveData('students', students) && saveData('fees', fees) && saveData('parentContacts', contacts) && saveData('attendanceRecords', attendanceLegacy) && saveData('attendance', attendanceTeacher)) {
+        if (saveData('students', students) && saveData('fees', fees) && saveData('parentContacts', contacts) && saveData('attendanceRecords', attendanceLegacy) && saveData('attendance', attendanceTeacher) && saveData('academic_history', history)) {
             button.closest('tr').remove();
 
             const tableBody = document.getElementById('studentsTableBody');
