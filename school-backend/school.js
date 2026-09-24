@@ -193,10 +193,11 @@ const ROW_BACKEND_KEYS = ['students', 'teachers', 'classes', 'timetables', 'fees
 
 // Data that doesn't need its own table — stored as a JSON blob in the
 // existing "settings" table instead (key = 'users' / 'activities' /
-// 'attendanceNotifications', value = the JSON-stringified array). This is
-// what was missing before: guest logins, recent activity, and the
-// notification bell's data were never being synced at all.
-const JSON_BACKEND_KEYS = ['users', 'activities', 'attendanceNotifications'];
+// 'attendanceNotifications' / 'grades' / 'parentContacts', value = the
+// JSON-stringified array). Grades and parent contacts are included here
+// specifically so they're backed up to Supabase too, not just kept in the
+// browser — the same protection every other data type already has.
+const JSON_BACKEND_KEYS = ['users', 'activities', 'attendanceNotifications', 'grades', 'parentContacts'];
 
 // Kept for anything elsewhere in the file that still checks this name.
 const BACKEND_KEYS = ROW_BACKEND_KEYS;
@@ -320,28 +321,74 @@ function getData(key) {
     }
 }
 
-// Pushes the full current array for a given key up to Supabase.
-// Each saveData() call already carries the complete, current snapshot of
-// that key, so the simplest reliable approach is: clear the table, then
-// insert the current snapshot. At this app's scale that's fast and avoids
-// having to diff old vs new rows.
+// Pushes the full current array for a given key up to Supabase using an
+// UPSERT — it only ever adds or updates rows, matched by id. This never
+// deletes anything. That's a deliberate, hard rule: the old version of this
+// function deleted the entire table first and re-inserted whatever the
+// browser's local array happened to contain. If the local copy was ever
+// empty for any reason (blocked storage, a page glitch, opening on a
+// different device before data loaded), that pattern would wipe the real
+// database to match. That bug already cost real student records once and
+// must never be able to happen again — so this function structurally
+// cannot delete. The only way a row leaves Supabase now is through
+// deleteRowFromBackend() / deleteRowsByField(), called only from the
+// specific "Delete" actions a person clicks on purpose (see below).
 async function syncToBackend(key, data) {
     if (!supabaseClient) { console.warn(`Supabase client missing — could not sync "${key}"`); return; }
+    if (!Array.isArray(data)) { console.warn(`Sync skipped for "${key}": data was not an array (refusing to touch Supabase).`); return; }
     try {
-        await supabaseClient.from(key).delete().not('id', 'is', null);
-        if (Array.isArray(data) && data.length > 0) {
+        if (data.length > 0) {
             const rows = data.map(item => mapRowForSupabase(key, item));
-            const { error } = await supabaseClient.from(key).insert(rows);
+            const { error } = await supabaseClient.from(key).upsert(rows, { onConflict: 'id' });
             if (error) {
-                console.warn(`✗ Supabase insert FAILED for "${key}":`, error.message);
+                console.warn(`✗ Supabase upsert FAILED for "${key}":`, error.message);
+                showNotification(`Warning: "${key}" may not have saved to the server. Check your connection.`, 'warning');
             } else {
-                console.log(`✓ Synced ${rows.length} record(s) to Supabase "${key}" table`);
+                console.log(`✓ Synced ${rows.length} record(s) to Supabase "${key}" table (upsert)`);
             }
-        } else {
-            console.log(`✓ Cleared "${key}" table in Supabase (no records to insert)`);
         }
+        // Intentionally no "else delete everything" branch here. An empty
+        // local array means nothing new to push up — it does NOT mean the
+        // Supabase table should be emptied.
     } catch (e) {
         console.warn(`✗ Supabase sync threw an error for "${key}":`, e);
+        showNotification(`Warning: "${key}" failed to sync to the server.`, 'warning');
+    }
+}
+
+// Deletes exactly one row, by id, from one Supabase table. This is the
+// ONLY sanctioned way a row is removed from the backend — called
+// specifically from the person's own "Delete" button clicks, never as a
+// side effect of a regular save.
+async function deleteRowFromBackend(table, id) {
+    if (!supabaseClient || !id) return;
+    try {
+        const { error } = await supabaseClient.from(table).delete().eq('id', id);
+        if (error) {
+            console.warn(`✗ Supabase delete FAILED for "${table}" id=${id}:`, error.message);
+            showNotification(`Warning: couldn't remove that record from the server.`, 'warning');
+        } else {
+            console.log(`✓ Deleted "${table}" id=${id} from Supabase`);
+        }
+    } catch (e) {
+        console.warn(`✗ Supabase delete threw an error for "${table}" id=${id}:`, e);
+    }
+}
+
+// Deletes every row in one table matching a given column value — used when
+// deleting a student needs to also remove their fee/attendance rows on the
+// backend, not just locally.
+async function deleteRowsByField(table, field, value) {
+    if (!supabaseClient || !value) return;
+    try {
+        const { error } = await supabaseClient.from(table).delete().eq(field, value);
+        if (error) {
+            console.warn(`✗ Supabase bulk delete FAILED for "${table}" where ${field}=${value}:`, error.message);
+        } else {
+            console.log(`✓ Deleted "${table}" rows where ${field}=${value} from Supabase`);
+        }
+    } catch (e) {
+        console.warn(`✗ Supabase bulk delete threw an error for "${table}" where ${field}=${value}:`, e);
     }
 }
 
@@ -457,11 +504,112 @@ function getFormLevelLabel(enrollmentYear) {
 }
 
 // ===========================
+// AUTOMATIC ACADEMIC YEAR ROLLOVER
+// ===========================
+// There is no manual "Start New Year" button and there never needs to be
+// one. Every time the app loads, it checks the real calendar year and
+// automatically promotes every active student to their next Form level —
+// catching up on any years that were skipped if the app wasn't opened for
+// a while (e.g. it was last opened in 2026 and it's now 2028: it processes
+// 2027 and 2028 in sequence, in order). This all happens silently as part
+// of normal page load.
+
+// Pulls the Form number and section letter out of a class name like
+// "Form 3-A" -> { level: 3, section: 'A' }. Classes that don't follow this
+// naming pattern are left alone by the rollover rather than guessed at.
+function parseClassName(className) {
+    if (!className) return null;
+    const match = className.match(/^Form\s*(\d+)-(.+)$/i);
+    if (!match) return null;
+    return { level: parseInt(match[1]), section: match[2] };
+}
+
+function updateAcademicYearDisplay(year) {
+    const el = document.getElementById('currentAcademicYearDisplay');
+    if (el) el.textContent = year;
+}
+
+function runAutomaticYearRollover() {
+    const currentYear = new Date().getFullYear();
+    let lastProcessedYear = parseInt(localStorage.getItem('lastProcessedAcademicYear') || '0');
+
+    // First run ever — there's no prior baseline to compare against, so
+    // record the current year as the starting point instead of guessing
+    // how many years may have already passed for existing data.
+    if (!lastProcessedYear) {
+        localStorage.setItem('lastProcessedAcademicYear', String(currentYear));
+        syncSetting('lastProcessedAcademicYear', String(currentYear));
+        updateAcademicYearDisplay(currentYear);
+        return;
+    }
+
+    if (lastProcessedYear >= currentYear) {
+        updateAcademicYearDisplay(lastProcessedYear);
+        return;
+    }
+
+    let students = getData('students') || [];
+    const classes = getData('classes') || [];
+    let yearsAdvanced = 0;
+    let studentsPromoted = 0;
+    const studentsNeedingPlacement = [];
+
+    while (lastProcessedYear < currentYear) {
+        lastProcessedYear++;
+        yearsAdvanced++;
+
+        students = students.map(s => {
+            if ((s.status || 'Active') !== 'Active') return s; // don't move inactive/withdrawn/graduated students
+            const parsed = parseClassName(s.class);
+            if (!parsed) return s; // class doesn't follow "Form X-Y" naming — leave it alone
+
+            const nextLevel = parsed.level + 1;
+            if (nextLevel > 6) {
+                // Completed Form 6 — mark as a graduate instead of pushing
+                // them into a Form 7 that doesn't exist.
+                studentsPromoted++;
+                return { ...s, status: 'Graduated' };
+            }
+
+            const nextClassName = `Form ${nextLevel}-${parsed.section}`;
+            const matchingClass = classes.find(c => c.name === nextClassName);
+            if (matchingClass) {
+                studentsPromoted++;
+                return { ...s, class: nextClassName };
+            }
+
+            // No class exists yet for their next level/section. Leave the
+            // student exactly where they are and flag it — silently
+            // guessing a placement would be worse than asking a human to
+            // create the class first.
+            studentsNeedingPlacement.push(s.name);
+            return s;
+        });
+    }
+
+    saveData('students', students);
+    localStorage.setItem('lastProcessedAcademicYear', String(lastProcessedYear));
+    syncSetting('lastProcessedAcademicYear', String(lastProcessedYear));
+    updateAcademicYearDisplay(lastProcessedYear);
+
+    if (studentsPromoted > 0 || studentsNeedingPlacement.length > 0) {
+        addActivity('🎓', `Academic year rollover: advanced ${yearsAdvanced} year${yearsAdvanced === 1 ? '' : 's'} to ${lastProcessedYear}, promoted ${studentsPromoted} student${studentsPromoted === 1 ? '' : 's'}.`);
+    }
+
+    if (studentsNeedingPlacement.length > 0) {
+        showNotification(`${studentsNeedingPlacement.length} student(s) couldn't be auto-promoted — no class exists yet for their next Form level. Create it and they'll move automatically next load.`, 'warning');
+    } else if (studentsPromoted > 0) {
+        showNotification(`Academic year updated to ${lastProcessedYear} — ${studentsPromoted} student(s) were automatically promoted.`, 'success');
+    }
+}
+
+// ===========================
 // LOAD ALL DATA FROM STORAGE
 // ===========================
 
 function loadAllData() {
     console.log('=== LOADING ALL STORED DATA ===');
+    runAutomaticYearRollover();
     loadStudentsFromStorage();
     loadTeachersFromStorage();
     loadClassesFromStorage();
@@ -2136,6 +2284,7 @@ function deleteClassRecord(button, classId) {
     let classes = getData('classes') || [];
     classes = classes.filter(c => c.id !== classId);
     if (saveData('classes', classes)) {
+        deleteRowFromBackend('classes', classId);
         window._classes = classes;
         if (button) button.closest('.class-card')?.remove();
         populateTimetableClassSelect();
@@ -2534,6 +2683,12 @@ function deleteStudentRecord(button, studentId) {
         attendanceTeacher = attendanceTeacher.filter(a => a.studentId !== studentId);
         
         if (saveData('students', students) && saveData('fees', fees) && saveData('parentContacts', contacts) && saveData('attendanceRecords', attendanceLegacy) && saveData('attendance', attendanceTeacher)) {
+            // Explicit, deliberate backend removal — the student and every
+            // record tied to their id, and nothing else.
+            deleteRowFromBackend('students', studentId);
+            deleteRowsByField('fees', 'student_id', studentId);
+            deleteRowsByField('attendance', 'student_id', studentId);
+
             button.closest('tr').remove();
 
             const tableBody = document.getElementById('studentsTableBody');
@@ -2622,6 +2777,7 @@ function deleteTeacherRecord(button, teacherId) {
         teachers = teachers.filter(t => t.id !== teacherId);
         
         if (saveData('teachers', teachers)) {
+            deleteRowFromBackend('teachers', teacherId);
             button.closest('tr').remove();
             const tableBody = document.getElementById('teachersTableBody');
             if (tableBody && tableBody.children.length === 0) {
@@ -3099,6 +3255,7 @@ function editStudentFees(studentId) {
 
         fees = fees.filter(f => f.studentId !== studentId);
         if (saveData('fees', fees)) {
+            deleteRowsByField('fees', 'student_id', studentId);
             loadFeesFromStorage();
             updateFeeSummary();
             addActivity('✏️', `Cleared all fee records for ${student.name}`);
@@ -3121,6 +3278,7 @@ function editStudentFees(studentId) {
 
     fees = fees.filter(f => f.id !== targetPayment.id);
     if (saveData('fees', fees)) {
+        deleteRowFromBackend('fees', targetPayment.id);
         loadFeesFromStorage();
         updateFeeSummary();
         updateDashboardStats();
@@ -3225,6 +3383,7 @@ function deleteFeeRecord(button, studentId) {
         fees = fees.filter(f => f.studentId !== studentId);
         
         if (saveData('fees', fees)) {
+            deleteRowsByField('fees', 'student_id', studentId);
             button.closest('tr').remove();
             updateFeeSummary();
             showNotification('Fee record deleted!', 'success');
@@ -3526,6 +3685,7 @@ function deleteTimetableEntry(button, id) {
     let timetables = getData('timetables') || [];
     timetables = timetables.filter(t => t.id !== id);
     if (saveData('timetables', timetables)) {
+        deleteRowFromBackend('timetables', id);
         button.closest('tr').remove();
         window._timetables = timetables;
         showNotification('Entry deleted', 'success');
