@@ -188,8 +188,19 @@ if (!supabaseClient) {
     console.warn('Supabase client failed to initialize — check that the supabase-js <script> tag is in index.html and loaded before school.js.');
 }
 
-// Tables with their own dedicated Supabase table (real columns, mapped below).
-const ROW_BACKEND_KEYS = ['students', 'teachers', 'classes', 'timetables', 'fees', 'attendance', 'academic_history'];
+// Tables that are safe to sync with a full-array UPSERT every time
+// saveData() is called. Upsert only ever adds/updates the rows present
+// locally — it NEVER deletes rows just because they're missing from the
+// array, so a momentarily-empty or storage-blocked browser can never wipe
+// Supabase. Explicit deletions (see deleteRowFromBackend /
+// deleteRowsFromBackend below) are the only way rows are ever removed.
+const SYNC_BACKEND_KEYS = ['students', 'teachers', 'classes', 'timetables', 'fees', 'attendance'];
+
+// academic_history is intentionally NOT in SYNC_BACKEND_KEYS — its rows are
+// immutable snapshots inserted directly (see insertAcademicHistoryRows),
+// not re-synced as a full array on every save. It's still loaded on page
+// load so the Records tab has data to show.
+const LOAD_BACKEND_KEYS = [...SYNC_BACKEND_KEYS, 'academic_history'];
 
 // Data that doesn't need its own table — stored as a JSON blob in the
 // existing "settings" table instead (key = 'users' / 'activities' /
@@ -197,9 +208,6 @@ const ROW_BACKEND_KEYS = ['students', 'teachers', 'classes', 'timetables', 'fees
 // what was missing before: guest logins, recent activity, and the
 // notification bell's data were never being synced at all.
 const JSON_BACKEND_KEYS = ['users', 'activities', 'attendanceNotifications'];
-
-// Kept for anything elsewhere in the file that still checks this name.
-const BACKEND_KEYS = ROW_BACKEND_KEYS;
 
 // Converts a local JS object (the shape the rest of school.js already
 // uses) into the column names actually defined in the Supabase tables.
@@ -271,8 +279,10 @@ function mapRowForSupabase(table, item) {
                 class: item.class || ''
             };
         case 'academic_history':
+            // No "id" here on purpose — that column is Postgres-generated
+            // (bigint identity). Supplying our own text id makes every
+            // insert fail.
             return {
-                id: item.id,
                 student_id: item.studentId,
                 academic_year: item.academicYear,
                 form_level: item.formLevel,
@@ -310,11 +320,13 @@ function mapRowFromSupabase(table, row) {
 function saveData(key, data) {
     try {
         localStorage.setItem(key, JSON.stringify(data));
-        if (ROW_BACKEND_KEYS.includes(key)) {
+        if (SYNC_BACKEND_KEYS.includes(key)) {
             syncToBackend(key, data);
         } else if (JSON_BACKEND_KEYS.includes(key)) {
             syncSetting(key, JSON.stringify(data));
         }
+        // academic_history is written to localStorage above like any other
+        // key, but is NOT auto-synced here — see insertAcademicHistoryRows.
         return true;
     } catch (e) {
         console.error('Error saving:', e);
@@ -332,28 +344,80 @@ function getData(key) {
     }
 }
 
-// Pushes the full current array for a given key up to Supabase.
-// Each saveData() call already carries the complete, current snapshot of
-// that key, so the simplest reliable approach is: clear the table, then
-// insert the current snapshot. At this app's scale that's fast and avoids
-// having to diff old vs new rows.
+// SAFETY-CRITICAL: Supabase is the single source of truth. This function
+// must NEVER be able to wipe a table just because the local array it was
+// given happens to be empty (e.g. because the browser blocked/cleared
+// localStorage). It only ever ADDS or UPDATES rows (upsert) — it never
+// deletes anything. Deletions are handled separately, explicitly, by
+// deleteRowsFromBackend() at the exact moment the user deletes a specific
+// record — never as a side effect of a general save.
+//
+// This replaces the old "delete every row, then re-insert everything"
+// approach, which could and did wipe real data in Supabase whenever the
+// local copy was momentarily empty or an insert failed partway through.
 async function syncToBackend(key, data) {
     if (!supabaseClient) { console.warn(`Supabase client missing — could not sync "${key}"`); return; }
+
+    if (!Array.isArray(data) || data.length === 0) {
+        // Deliberately a no-op. An empty/missing local array is never a
+        // signal to delete anything from Supabase — it usually just means
+        // localStorage hasn't loaded yet or was blocked by the browser.
+        console.log(`ℹ Skipped syncing "${key}" — nothing to upsert (this never deletes existing Supabase rows)`);
+        return;
+    }
+
     try {
-        await supabaseClient.from(key).delete().not('id', 'is', null);
-        if (Array.isArray(data) && data.length > 0) {
-            const rows = data.map(item => mapRowForSupabase(key, item));
-            const { error } = await supabaseClient.from(key).insert(rows);
-            if (error) {
-                console.warn(`✗ Supabase insert FAILED for "${key}":`, error.message);
-            } else {
-                console.log(`✓ Synced ${rows.length} record(s) to Supabase "${key}" table`);
-            }
+        const rows = data.map(item => mapRowForSupabase(key, item));
+        const { error } = await supabaseClient.from(key).upsert(rows, { onConflict: 'id' });
+        if (error) {
+            console.warn(`✗ Supabase upsert FAILED for "${key}":`, error.message);
         } else {
-            console.log(`✓ Cleared "${key}" table in Supabase (no records to insert)`);
+            console.log(`✓ Upserted ${rows.length} record(s) to Supabase "${key}" table`);
         }
     } catch (e) {
         console.warn(`✗ Supabase sync threw an error for "${key}":`, e);
+    }
+}
+
+// Deletes specific rows from Supabase by matching a column — used at the
+// exact moment a record is actually deleted in the UI, so removals reach
+// the real database directly instead of relying on a risky "resync the
+// whole table" pattern that could delete far more than intended.
+async function deleteRowsFromBackend(table, matchColumn, matchValue) {
+    if (!supabaseClient) { console.warn(`Supabase client missing — could not delete from "${table}"`); return; }
+    try {
+        const { error } = await supabaseClient.from(table).delete().eq(matchColumn, matchValue);
+        if (error) {
+            console.warn(`✗ Supabase delete FAILED for "${table}" where ${matchColumn}=${matchValue}:`, error.message);
+        } else {
+            console.log(`✓ Deleted from Supabase "${table}" where ${matchColumn}=${matchValue}`);
+        }
+    } catch (e) {
+        console.warn(`✗ Supabase delete threw an error for "${table}":`, e);
+    }
+}
+
+function deleteRowFromBackend(table, id) {
+    return deleteRowsFromBackend(table, 'id', id);
+}
+
+// academic_history rows are immutable snapshots, inserted directly rather
+// than upserted as part of a full-array resync (their Supabase "id" column
+// is auto-generated, so we never send one). Called once per academic-year
+// rollover with just the NEW rows that rollover created.
+async function insertAcademicHistoryRows(items) {
+    if (!supabaseClient) { console.warn('Supabase client missing — could not save academic history'); return; }
+    if (!items || items.length === 0) return;
+    try {
+        const rows = items.map(item => mapRowForSupabase('academic_history', item));
+        const { error } = await supabaseClient.from('academic_history').insert(rows);
+        if (error) {
+            console.warn('✗ Supabase insert FAILED for "academic_history":', error.message);
+        } else {
+            console.log(`✓ Synced ${rows.length} record(s) to Supabase "academic_history" table`);
+        }
+    } catch (e) {
+        console.warn('✗ Supabase academic_history insert threw an error:', e);
     }
 }
 
@@ -363,7 +427,7 @@ async function syncToBackend(key, data) {
 async function loadFromBackend() {
     if (!supabaseClient) return;
 
-    for (const key of BACKEND_KEYS) {
+    for (const key of LOAD_BACKEND_KEYS) {
         try {
             const { data, error } = await supabaseClient.from(key).select('*');
             if (error) { console.warn(`Could not load ${key} from Supabase:`, error.message); continue; }
@@ -488,6 +552,22 @@ function getSectionLetter(className) {
 //     every student's displayed form level and their class assignment
 //     (same section letter, form + 1). Anyone who would move past Form 4
 //     is marked Graduated instead of reassigned to a nonexistent class.
+// Snapshots exactly what's needed to undo a rollover — the full student
+// list and the academic year — taken immediately before anything changes.
+// This is what makes an accidental click on "Start New Academic Year"
+// reversible with "Undo Last Academic Year".
+function backupBeforeRollover(students, currentYear) {
+    try {
+        localStorage.setItem('academicYearBackup', JSON.stringify({
+            students: JSON.parse(JSON.stringify(students)),
+            year: currentYear,
+            timestamp: Date.now()
+        }));
+    } catch (e) {
+        console.warn('Could not save academic year rollover backup', e);
+    }
+}
+
 async function startNewAcademicYear() {
     const students = getData('students') || [];
     const classes = getData('classes') || window._classes || [];
@@ -499,13 +579,17 @@ async function startNewAcademicYear() {
         return;
     }
 
-    if (!confirm(`Start a new academic year?\n\nThis will:\n• Snapshot all ${students.length} students' ${outgoingYear} records into their history\n• Advance every student to their next form level\n• Mark anyone past Form 4 as graduated\n\nCurrent year: ${outgoingYear} → New year: ${outgoingYear + 1}\n\nContinue?`)) {
+    if (!confirm(`Start a new academic year?\n\nThis will:\n• Snapshot all ${students.length} students' ${outgoingYear} records into their history\n• Advance every student to their next form level\n• Mark anyone past Form 4 as graduated\n\nCurrent year: ${outgoingYear} → New year: ${outgoingYear + 1}\n\nThis can be undone afterward with "Undo Last Academic Year" if it was clicked by mistake.\n\nContinue?`)) {
         return;
     }
+
+    // Safety backup FIRST, before anything is touched.
+    backupBeforeRollover(students, outgoingYear);
 
     const totalDue = parseInt(localStorage.getItem('totalFeesDue') || '0');
     let history = getData('academic_history') || [];
     if (!Array.isArray(history)) history = [];
+    const newHistoryRows = [];
 
     let graduatedCount = 0;
     let promotedCount = 0;
@@ -518,14 +602,16 @@ async function startNewAcademicYear() {
         // 1. Snapshot the outgoing year into history (only if we can tell
         // what form they were actually in this year).
         if (outgoingLevel !== null) {
-            history.push({
+            const row = {
                 id: 'AH' + Date.now() + '-' + student.id,
                 studentId: student.id,
                 academicYear: outgoingYear,
                 formLevel: outgoingLevel,
                 section: getSectionLetter(student.class),
                 feesStatus: feesStatus
-            });
+            };
+            history.push(row);
+            newHistoryRows.push(row);
         }
 
         // 2. Figure out what happens to them next year.
@@ -549,8 +635,15 @@ async function startNewAcademicYear() {
         }
     });
 
+    // Local cache for the Records tab. academic_history is not in
+    // SYNC_BACKEND_KEYS, so this writes to localStorage only — the actual
+    // Supabase write happens below, directly and only for the new rows.
     saveData('academic_history', history);
+    // Students: a safe upsert — every existing row is updated in place,
+    // nothing is ever deleted by this call.
     saveData('students', students);
+    // Push only the brand-new history rows straight to Supabase.
+    await insertAcademicHistoryRows(newHistoryRows);
     setCurrentAcademicYear(outgoingYear + 1);
 
     loadStudentsFromStorage();
@@ -558,6 +651,48 @@ async function startNewAcademicYear() {
     updateDashboardStats();
     addActivity('📅', `Started academic year ${outgoingYear + 1} — ${promotedCount} promoted, ${graduatedCount} graduated`);
     showNotification(`Academic year ${outgoingYear + 1} started — ${promotedCount} students promoted, ${graduatedCount} graduated.`, 'success');
+
+    const yearDisplay = document.getElementById('currentAcademicYearDisplay');
+    if (yearDisplay) yearDisplay.textContent = getCurrentAcademicYear();
+}
+
+// Restores students (and the academic year counter) to exactly how they
+// were right before the last "Start New Academic Year" run — the safety
+// net for an accidental click. Best-effort cleanup of the history rows
+// that rollover created (an older, separate rollover for the same year
+// number, if one somehow exists, is left alone).
+function undoLastAcademicYear() {
+    const raw = localStorage.getItem('academicYearBackup');
+    if (!raw) {
+        showNotification('No recent academic year rollover to undo.', 'warning');
+        return;
+    }
+    let backup;
+    try { backup = JSON.parse(raw); } catch (e) {
+        showNotification('Backup data is unreadable — cannot undo.', 'error');
+        return;
+    }
+    if (!confirm(`Undo the academic year rollover from ${new Date(backup.timestamp).toLocaleString()}?\n\nThis restores every student to their state just before it ran, and reverts the academic year back to ${backup.year}.`)) {
+        return;
+    }
+
+    saveData('students', backup.students);
+    setCurrentAcademicYear(backup.year);
+
+    // Best-effort: drop the history rows that rollover just created, both
+    // locally and in Supabase.
+    let history = getData('academic_history') || [];
+    history = history.filter(h => h.academicYear !== backup.year);
+    saveData('academic_history', history);
+    deleteRowsFromBackend('academic_history', 'academic_year', backup.year);
+
+    localStorage.removeItem('academicYearBackup');
+
+    loadStudentsFromStorage();
+    loadClassesFromStorage();
+    updateDashboardStats();
+    addActivity('↩️', `Undid academic year rollover — restored to ${backup.year}`);
+    showNotification('Academic year rollover undone.', 'success');
 
     const yearDisplay = document.getElementById('currentAcademicYearDisplay');
     if (yearDisplay) yearDisplay.textContent = getCurrentAcademicYear();
@@ -2265,6 +2400,7 @@ function deleteClassRecord(button, classId) {
     let classes = getData('classes') || [];
     classes = classes.filter(c => c.id !== classId);
     if (saveData('classes', classes)) {
+        deleteRowFromBackend('classes', classId);
         window._classes = classes;
         if (button) button.closest('.class-card')?.remove();
         populateTimetableClassSelect();
@@ -2661,6 +2797,15 @@ function deleteStudentRecord(button, studentId) {
         history = history.filter(h => h.studentId !== studentId);
         
         if (saveData('students', students) && saveData('fees', fees) && saveData('parentContacts', contacts) && saveData('attendanceRecords', attendanceLegacy) && saveData('attendance', attendanceTeacher) && saveData('academic_history', history)) {
+            // Explicit remote deletes — the saveData calls above only
+            // upsert whoever is LEFT in each array, so this is the only
+            // thing that actually removes this student's rows from
+            // Supabase.
+            deleteRowFromBackend('students', studentId);
+            deleteRowsFromBackend('fees', 'student_id', studentId);
+            deleteRowsFromBackend('attendance', 'student_id', studentId);
+            deleteRowsFromBackend('academic_history', 'student_id', studentId);
+
             button.closest('tr').remove();
 
             const tableBody = document.getElementById('studentsTableBody');
@@ -2749,6 +2894,7 @@ function deleteTeacherRecord(button, teacherId) {
         teachers = teachers.filter(t => t.id !== teacherId);
         
         if (saveData('teachers', teachers)) {
+            deleteRowFromBackend('teachers', teacherId);
             button.closest('tr').remove();
             const tableBody = document.getElementById('teachersTableBody');
             if (tableBody && tableBody.children.length === 0) {
@@ -3226,6 +3372,7 @@ function editStudentFees(studentId) {
 
         fees = fees.filter(f => f.studentId !== studentId);
         if (saveData('fees', fees)) {
+            deleteRowsFromBackend('fees', 'student_id', studentId);
             loadFeesFromStorage();
             updateFeeSummary();
             addActivity('✏️', `Cleared all fee records for ${student.name}`);
@@ -3248,6 +3395,7 @@ function editStudentFees(studentId) {
 
     fees = fees.filter(f => f.id !== targetPayment.id);
     if (saveData('fees', fees)) {
+        deleteRowFromBackend('fees', targetPayment.id);
         loadFeesFromStorage();
         updateFeeSummary();
         updateDashboardStats();
@@ -3352,6 +3500,7 @@ function deleteFeeRecord(button, studentId) {
         fees = fees.filter(f => f.studentId !== studentId);
         
         if (saveData('fees', fees)) {
+            deleteRowsFromBackend('fees', 'student_id', studentId);
             button.closest('tr').remove();
             updateFeeSummary();
             showNotification('Fee record deleted!', 'success');
@@ -3653,6 +3802,7 @@ function deleteTimetableEntry(button, id) {
     let timetables = getData('timetables') || [];
     timetables = timetables.filter(t => t.id !== id);
     if (saveData('timetables', timetables)) {
+        deleteRowFromBackend('timetables', id);
         button.closest('tr').remove();
         window._timetables = timetables;
         showNotification('Entry deleted', 'success');
