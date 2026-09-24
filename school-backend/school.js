@@ -188,19 +188,8 @@ if (!supabaseClient) {
     console.warn('Supabase client failed to initialize — check that the supabase-js <script> tag is in index.html and loaded before school.js.');
 }
 
-// Tables that are safe to sync with a full-array UPSERT every time
-// saveData() is called. Upsert only ever adds/updates the rows present
-// locally — it NEVER deletes rows just because they're missing from the
-// array, so a momentarily-empty or storage-blocked browser can never wipe
-// Supabase. Explicit deletions (see deleteRowFromBackend /
-// deleteRowsFromBackend below) are the only way rows are ever removed.
-const SYNC_BACKEND_KEYS = ['students', 'teachers', 'classes', 'timetables', 'fees', 'attendance'];
-
-// academic_history is intentionally NOT in SYNC_BACKEND_KEYS — its rows are
-// immutable snapshots inserted directly (see insertAcademicHistoryRows),
-// not re-synced as a full array on every save. It's still loaded on page
-// load so the Records tab has data to show.
-const LOAD_BACKEND_KEYS = [...SYNC_BACKEND_KEYS, 'academic_history'];
+// Tables with their own dedicated Supabase table (real columns, mapped below).
+const ROW_BACKEND_KEYS = ['students', 'teachers', 'classes', 'timetables', 'fees', 'attendance'];
 
 // Data that doesn't need its own table — stored as a JSON blob in the
 // existing "settings" table instead (key = 'users' / 'activities' /
@@ -208,6 +197,9 @@ const LOAD_BACKEND_KEYS = [...SYNC_BACKEND_KEYS, 'academic_history'];
 // what was missing before: guest logins, recent activity, and the
 // notification bell's data were never being synced at all.
 const JSON_BACKEND_KEYS = ['users', 'activities', 'attendanceNotifications'];
+
+// Kept for anything elsewhere in the file that still checks this name.
+const BACKEND_KEYS = ROW_BACKEND_KEYS;
 
 // Converts a local JS object (the shape the rest of school.js already
 // uses) into the column names actually defined in the Supabase tables.
@@ -264,8 +256,7 @@ function mapRowForSupabase(table, item) {
                 date_added: item.dateAdded || '',
                 parent_name: item.parentName || '',
                 phone: item.phone || '',
-                enrollment_year: item.enrollmentYear || null,
-                graduation_year: item.graduationYear || null
+                enrollment_year: item.enrollmentYear || null
             };
         case 'teachers':
             return {
@@ -277,17 +268,6 @@ function mapRowForSupabase(table, item) {
                 status: item.status || '',
                 username: item.username || '',
                 class: item.class || ''
-            };
-        case 'academic_history':
-            // No "id" here on purpose — that column is Postgres-generated
-            // (bigint identity). Supplying our own text id makes every
-            // insert fail.
-            return {
-                student_id: item.studentId,
-                academic_year: item.academicYear,
-                form_level: item.formLevel,
-                section: item.section || '',
-                fees_status: item.feesStatus || ''
             };
         default:
             return item;
@@ -307,11 +287,9 @@ function mapRowFromSupabase(table, row) {
         case 'attendance':
             return { id: row.id, studentId: row.student_id, class: row.class, date: row.date, status: row.status, teacher: row.teacher, note: row.note };
         case 'students':
-            return { id: row.id, name: row.name, class: row.class, gender: row.gender, password: row.password, status: row.status || 'Active', dateAdded: row.date_added || '', parentName: row.parent_name || '', phone: row.phone || '', enrollmentYear: row.enrollment_year || null, graduationYear: row.graduation_year || null };
+            return { id: row.id, name: row.name, class: row.class, gender: row.gender, password: row.password, status: row.status || 'Active', dateAdded: row.date_added || '', parentName: row.parent_name || '', phone: row.phone || '', enrollmentYear: row.enrollment_year || '' };
         case 'teachers':
             return { id: row.id, name: row.name, department: row.department, email: row.email, phone: row.phone, status: row.status, username: row.username, class: row.class };
-        case 'academic_history':
-            return { id: row.id, studentId: row.student_id, academicYear: row.academic_year, formLevel: row.form_level, section: row.section, feesStatus: row.fees_status };
         default:
             return row;
     }
@@ -320,13 +298,11 @@ function mapRowFromSupabase(table, row) {
 function saveData(key, data) {
     try {
         localStorage.setItem(key, JSON.stringify(data));
-        if (SYNC_BACKEND_KEYS.includes(key)) {
+        if (ROW_BACKEND_KEYS.includes(key)) {
             syncToBackend(key, data);
         } else if (JSON_BACKEND_KEYS.includes(key)) {
             syncSetting(key, JSON.stringify(data));
         }
-        // academic_history is written to localStorage above like any other
-        // key, but is NOT auto-synced here — see insertAcademicHistoryRows.
         return true;
     } catch (e) {
         console.error('Error saving:', e);
@@ -344,80 +320,28 @@ function getData(key) {
     }
 }
 
-// SAFETY-CRITICAL: Supabase is the single source of truth. This function
-// must NEVER be able to wipe a table just because the local array it was
-// given happens to be empty (e.g. because the browser blocked/cleared
-// localStorage). It only ever ADDS or UPDATES rows (upsert) — it never
-// deletes anything. Deletions are handled separately, explicitly, by
-// deleteRowsFromBackend() at the exact moment the user deletes a specific
-// record — never as a side effect of a general save.
-//
-// This replaces the old "delete every row, then re-insert everything"
-// approach, which could and did wipe real data in Supabase whenever the
-// local copy was momentarily empty or an insert failed partway through.
+// Pushes the full current array for a given key up to Supabase.
+// Each saveData() call already carries the complete, current snapshot of
+// that key, so the simplest reliable approach is: clear the table, then
+// insert the current snapshot. At this app's scale that's fast and avoids
+// having to diff old vs new rows.
 async function syncToBackend(key, data) {
     if (!supabaseClient) { console.warn(`Supabase client missing — could not sync "${key}"`); return; }
-
-    if (!Array.isArray(data) || data.length === 0) {
-        // Deliberately a no-op. An empty/missing local array is never a
-        // signal to delete anything from Supabase — it usually just means
-        // localStorage hasn't loaded yet or was blocked by the browser.
-        console.log(`ℹ Skipped syncing "${key}" — nothing to upsert (this never deletes existing Supabase rows)`);
-        return;
-    }
-
     try {
-        const rows = data.map(item => mapRowForSupabase(key, item));
-        const { error } = await supabaseClient.from(key).upsert(rows, { onConflict: 'id' });
-        if (error) {
-            console.warn(`✗ Supabase upsert FAILED for "${key}":`, error.message);
+        await supabaseClient.from(key).delete().not('id', 'is', null);
+        if (Array.isArray(data) && data.length > 0) {
+            const rows = data.map(item => mapRowForSupabase(key, item));
+            const { error } = await supabaseClient.from(key).insert(rows);
+            if (error) {
+                console.warn(`✗ Supabase insert FAILED for "${key}":`, error.message);
+            } else {
+                console.log(`✓ Synced ${rows.length} record(s) to Supabase "${key}" table`);
+            }
         } else {
-            console.log(`✓ Upserted ${rows.length} record(s) to Supabase "${key}" table`);
+            console.log(`✓ Cleared "${key}" table in Supabase (no records to insert)`);
         }
     } catch (e) {
         console.warn(`✗ Supabase sync threw an error for "${key}":`, e);
-    }
-}
-
-// Deletes specific rows from Supabase by matching a column — used at the
-// exact moment a record is actually deleted in the UI, so removals reach
-// the real database directly instead of relying on a risky "resync the
-// whole table" pattern that could delete far more than intended.
-async function deleteRowsFromBackend(table, matchColumn, matchValue) {
-    if (!supabaseClient) { console.warn(`Supabase client missing — could not delete from "${table}"`); return; }
-    try {
-        const { error } = await supabaseClient.from(table).delete().eq(matchColumn, matchValue);
-        if (error) {
-            console.warn(`✗ Supabase delete FAILED for "${table}" where ${matchColumn}=${matchValue}:`, error.message);
-        } else {
-            console.log(`✓ Deleted from Supabase "${table}" where ${matchColumn}=${matchValue}`);
-        }
-    } catch (e) {
-        console.warn(`✗ Supabase delete threw an error for "${table}":`, e);
-    }
-}
-
-function deleteRowFromBackend(table, id) {
-    return deleteRowsFromBackend(table, 'id', id);
-}
-
-// academic_history rows are immutable snapshots, inserted directly rather
-// than upserted as part of a full-array resync (their Supabase "id" column
-// is auto-generated, so we never send one). Called once per academic-year
-// rollover with just the NEW rows that rollover created.
-async function insertAcademicHistoryRows(items) {
-    if (!supabaseClient) { console.warn('Supabase client missing — could not save academic history'); return; }
-    if (!items || items.length === 0) return;
-    try {
-        const rows = items.map(item => mapRowForSupabase('academic_history', item));
-        const { error } = await supabaseClient.from('academic_history').insert(rows);
-        if (error) {
-            console.warn('✗ Supabase insert FAILED for "academic_history":', error.message);
-        } else {
-            console.log(`✓ Synced ${rows.length} record(s) to Supabase "academic_history" table`);
-        }
-    } catch (e) {
-        console.warn('✗ Supabase academic_history insert threw an error:', e);
     }
 }
 
@@ -427,7 +351,7 @@ async function insertAcademicHistoryRows(items) {
 async function loadFromBackend() {
     if (!supabaseClient) return;
 
-    for (const key of LOAD_BACKEND_KEYS) {
+    for (const key of BACKEND_KEYS) {
         try {
             const { data, error } = await supabaseClient.from(key).select('*');
             if (error) { console.warn(`Could not load ${key} from Supabase:`, error.message); continue; }
@@ -505,225 +429,31 @@ function formatCurrency(amount, currency = null) {
 }
 
 // ===========================
-// ACADEMIC YEAR HELPERS
+// ENROLLMENT YEAR / FORM LEVEL HELPERS
 // ===========================
-// The school's "current" academic year is stored once, so promoting
-// everyone each year is just updating this single value instead of
-// touching every student record.
-
-function getCurrentAcademicYear() {
-    const saved = localStorage.getItem('currentAcademicYear');
-    return saved ? parseInt(saved) : new Date().getFullYear();
-}
-
-function setCurrentAcademicYear(year) {
-    localStorage.setItem('currentAcademicYear', String(year));
-    syncSetting('currentAcademicYear', String(year));
-}
-
-// A student's form level is NEVER stored directly — it's always
-// calculated from enrollmentYear + the current academic year, so it
-// advances automatically every year without anyone editing records.
-function computeCurrentFormLevel(enrollmentYear) {
+// A student's "enrollment year" is the calendar year they started Form 1.
+// From that single number we can always compute which Form level they
+// SHOULD currently be in, instead of that going stale as school years pass
+// and nobody remembers to bump it by hand. Zimbabwean secondary school runs
+// Form 1 through Form 6, so the result is clamped to that range.
+function calculateCurrentFormLevel(enrollmentYear) {
     if (!enrollmentYear) return null;
-    return getCurrentAcademicYear() - parseInt(enrollmentYear) + 1;
+    const startYear = parseInt(enrollmentYear);
+    if (isNaN(startYear)) return null;
+
+    const currentYear = new Date().getFullYear();
+    let formLevel = (currentYear - startYear) + 1;
+
+    if (formLevel < 1) formLevel = 1;
+    if (formLevel > 6) formLevel = 6;
+    return formLevel;
 }
 
-function formLevelLabel(enrollmentYear) {
-    const level = computeCurrentFormLevel(enrollmentYear);
-    if (level === null) return 'Enrollment year not set';
-    if (level < 1) return 'Not yet enrolled';
-    if (level > 4) return 'Graduated (O-Level)';
-    return `Form ${level}`;
-}
-
-// Pulls the section letter off the end of a class name like "Form 2-B" -> "B"
-function getSectionLetter(className) {
-    if (!className) return '';
-    const parts = String(className).split('-');
-    return parts.length > 1 ? parts[parts.length - 1].trim() : '';
-}
-
-// Rolls the whole school forward one academic year:
-//  1. Snapshots every student's current form/class/fee-status into
-//     academic_history (so the outgoing year's record is preserved).
-//  2. Advances the stored "current academic year" by one, which — because
-//     form level is always calculated, never stored — instantly updates
-//     every student's displayed form level and their class assignment
-//     (same section letter, form + 1). Anyone who would move past Form 4
-//     is marked Graduated instead of reassigned to a nonexistent class.
-// Snapshots exactly what's needed to undo a rollover — the full student
-// list and the academic year — taken immediately before anything changes.
-// This is what makes an accidental click on "Start New Academic Year"
-// reversible with "Undo Last Academic Year".
-function backupBeforeRollover(students, currentYear) {
-    try {
-        localStorage.setItem('academicYearBackup', JSON.stringify({
-            students: JSON.parse(JSON.stringify(students)),
-            year: currentYear,
-            timestamp: Date.now()
-        }));
-    } catch (e) {
-        console.warn('Could not save academic year rollover backup', e);
-    }
-}
-
-async function startNewAcademicYear() {
-    const students = getData('students') || [];
-    const classes = getData('classes') || window._classes || [];
-    const fees = getData('fees') || [];
-    const outgoingYear = getCurrentAcademicYear();
-
-    if (students.length === 0) {
-        showNotification('No students to promote yet.', 'warning');
-        return;
-    }
-
-    if (!confirm(`Start a new academic year?\n\nThis will:\n• Snapshot all ${students.length} students' ${outgoingYear} records into their history\n• Advance every student to their next form level\n• Mark anyone past Form 4 as graduated\n\nCurrent year: ${outgoingYear} → New year: ${outgoingYear + 1}\n\nThis can be undone afterward with "Undo Last Academic Year" if it was clicked by mistake.\n\nContinue?`)) {
-        return;
-    }
-
-    // Safety backup FIRST, before anything is touched.
-    backupBeforeRollover(students, outgoingYear);
-
-    const totalDue = parseInt(localStorage.getItem('totalFeesDue') || '0');
-    let history = getData('academic_history') || [];
-    if (!Array.isArray(history)) history = [];
-    const newHistoryRows = [];
-
-    let graduatedCount = 0;
-    let promotedCount = 0;
-
-    students.forEach(student => {
-        const outgoingLevel = computeCurrentFormLevel(student.enrollmentYear);
-        const paid = fees.filter(f => f.studentId === student.id).reduce((sum, f) => sum + (parseInt(f.amount) || 0), 0);
-        const feesStatus = totalDue > 0 && paid >= totalDue ? 'paid' : (paid > 0 ? 'partial' : 'pending');
-
-        // 1. Snapshot the outgoing year into history (only if we can tell
-        // what form they were actually in this year).
-        if (outgoingLevel !== null) {
-            const row = {
-                id: 'AH' + Date.now() + '-' + student.id,
-                studentId: student.id,
-                academicYear: outgoingYear,
-                formLevel: outgoingLevel,
-                section: getSectionLetter(student.class),
-                feesStatus: feesStatus
-            };
-            history.push(row);
-            newHistoryRows.push(row);
-        }
-
-        // 2. Figure out what happens to them next year.
-        const nextLevel = outgoingLevel !== null ? outgoingLevel + 1 : null;
-        if (nextLevel !== null && nextLevel > 4) {
-            student.status = 'Inactive';
-            student.graduationYear = outgoingYear;
-            graduatedCount++;
-        } else if (nextLevel !== null) {
-            const section = getSectionLetter(student.class);
-            const nextClassName = `Form ${nextLevel}-${section}`;
-            const nextClassExists = classes.find(c => c.name === nextClassName);
-            if (nextClassExists) {
-                student.class = nextClassName;
-                promotedCount++;
-            }
-            // If the matching next-year class doesn't exist yet, leave the
-            // student's class as-is for now — create the class, then the
-            // student's calculated form level will still show correctly
-            // even before they're manually reassigned.
-        }
-    });
-
-    // Local cache for the Records tab. academic_history is not in
-    // SYNC_BACKEND_KEYS, so this writes to localStorage only — the actual
-    // Supabase write happens below, directly and only for the new rows.
-    saveData('academic_history', history);
-    // Students: a safe upsert — every existing row is updated in place,
-    // nothing is ever deleted by this call.
-    saveData('students', students);
-    // Push only the brand-new history rows straight to Supabase.
-    await insertAcademicHistoryRows(newHistoryRows);
-    setCurrentAcademicYear(outgoingYear + 1);
-
-    loadStudentsFromStorage();
-    loadClassesFromStorage();
-    updateDashboardStats();
-    addActivity('📅', `Started academic year ${outgoingYear + 1} — ${promotedCount} promoted, ${graduatedCount} graduated`);
-    showNotification(`Academic year ${outgoingYear + 1} started — ${promotedCount} students promoted, ${graduatedCount} graduated.`, 'success');
-
-    const yearDisplay = document.getElementById('currentAcademicYearDisplay');
-    if (yearDisplay) yearDisplay.textContent = getCurrentAcademicYear();
-}
-
-// Restores students (and the academic year counter) to exactly how they
-// were right before the last "Start New Academic Year" run — the safety
-// net for an accidental click. Best-effort cleanup of the history rows
-// that rollover created (an older, separate rollover for the same year
-// number, if one somehow exists, is left alone).
-function undoLastAcademicYear() {
-    const raw = localStorage.getItem('academicYearBackup');
-    if (!raw) {
-        showNotification('No recent academic year rollover to undo.', 'warning');
-        return;
-    }
-    let backup;
-    try { backup = JSON.parse(raw); } catch (e) {
-        showNotification('Backup data is unreadable — cannot undo.', 'error');
-        return;
-    }
-    if (!confirm(`Undo the academic year rollover from ${new Date(backup.timestamp).toLocaleString()}?\n\nThis restores every student to their state just before it ran, and reverts the academic year back to ${backup.year}.`)) {
-        return;
-    }
-
-    saveData('students', backup.students);
-    setCurrentAcademicYear(backup.year);
-
-    // Best-effort: drop the history rows that rollover just created, both
-    // locally and in Supabase.
-    let history = getData('academic_history') || [];
-    history = history.filter(h => h.academicYear !== backup.year);
-    saveData('academic_history', history);
-    deleteRowsFromBackend('academic_history', 'academic_year', backup.year);
-
-    localStorage.removeItem('academicYearBackup');
-
-    loadStudentsFromStorage();
-    loadClassesFromStorage();
-    updateDashboardStats();
-    addActivity('↩️', `Undid academic year rollover — restored to ${backup.year}`);
-    showNotification('Academic year rollover undone.', 'success');
-
-    const yearDisplay = document.getElementById('currentAcademicYearDisplay');
-    if (yearDisplay) yearDisplay.textContent = getCurrentAcademicYear();
-}
-
-// Renders a student's year-by-year academic_history rows in the Records tab.
-function renderStudentAcademicHistory(studentId) {
-    const panel = document.getElementById('profileRecordsPanel');
-    if (!panel) return;
-
-    const history = (getData('academic_history') || [])
-        .filter(h => h.studentId === studentId)
-        .sort((a, b) => a.academicYear - b.academicYear);
-
-    const students = getData('students') || [];
-    const student = students.find(s => s.id === studentId);
-    const currentLevel = student ? computeCurrentFormLevel(student.enrollmentYear) : null;
-
-    let html = `<div style="margin-bottom:0.75rem;"><strong>Enrolled:</strong> ${student && student.enrollmentYear ? student.enrollmentYear : '—'} &middot; <strong>Current:</strong> ${student ? formLevelLabel(student.enrollmentYear) : '—'}</div>`;
-
-    if (history.length === 0) {
-        html += '<p style="color:#999; padding:0.75rem;">No past academic years recorded yet. Records are created automatically when "Start New Academic Year" is run.</p>';
-    } else {
-        html += '<table class="table"><thead><tr><th>Academic Year</th><th>Form</th><th>Section</th><th>Fees</th></tr></thead><tbody>';
-        history.forEach(h => {
-            html += `<tr><td>${h.academicYear}</td><td>Form ${h.formLevel}</td><td>${h.section || '—'}</td><td>${h.feesStatus || '—'}</td></tr>`;
-        });
-        html += '</tbody></table>';
-    }
-
-    panel.innerHTML = html;
+// Human-readable label for display ("Form 3", or "—" when there's no
+// enrollment year recorded yet for this student).
+function getFormLevelLabel(enrollmentYear) {
+    const formLevel = calculateCurrentFormLevel(enrollmentYear);
+    return formLevel ? `Form ${formLevel}` : '—';
 }
 
 // ===========================
@@ -741,9 +471,6 @@ function loadAllData() {
     populateTimetableClassSelect();
 
     renderNotificationDropdown();
-
-    const yearDisplay = document.getElementById('currentAcademicYearDisplay');
-    if (yearDisplay) yearDisplay.textContent = getCurrentAcademicYear();
 
     const ttSelect = document.getElementById('timetableClassSelect');
     if (ttSelect) {
@@ -2113,6 +1840,12 @@ function openStudentProfile(studentId) {
         ? new Date(student.dateAdded).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
         : '—';
 
+    // Enrollment year + auto-calculated current form level, for the
+    // Overview tab. Only meaningful once a student actually has an
+    // enrollment year on record.
+    const enrollmentYearLabel = student.enrollmentYear || '—';
+    const currentFormLabel = student.enrollmentYear ? getFormLevelLabel(student.enrollmentYear) : '—';
+
     // The header — everything essential about this student at a glance,
     // before you even pick a tab.
     const headerEl = document.getElementById('profileHeaderInfo');
@@ -2158,10 +1891,6 @@ function openStudentProfile(studentId) {
                 <div class="pd-value">${classTeacher}</div>
             </div>
             <div class="profile-detail-item">
-                <div class="pd-label">Academic Year Level</div>
-                <div class="pd-value">${formLevelLabel(student.enrollmentYear)}${student.enrollmentYear ? ' — enrolled ' + student.enrollmentYear : ''}</div>
-            </div>
-            <div class="profile-detail-item">
                 <div class="pd-label">Parent / Guardian</div>
                 <div class="pd-value">${student.parentName || '—'}</div>
             </div>
@@ -2172,6 +1901,14 @@ function openStudentProfile(studentId) {
             <div class="profile-detail-item">
                 <div class="pd-label">Date Added</div>
                 <div class="pd-value">${dateLabel}</div>
+            </div>
+            <div class="profile-detail-item">
+                <div class="pd-label">Enrollment Year</div>
+                <div class="pd-value">${enrollmentYearLabel}${student.enrollmentYear ? ' (started Form 1)' : ''}</div>
+            </div>
+            <div class="profile-detail-item">
+                <div class="pd-label">Current Form Level</div>
+                <div class="pd-value">${currentFormLabel}</div>
             </div>
             <div class="profile-detail-item">
                 <div class="pd-label">Fees Paid</div>
@@ -2188,7 +1925,6 @@ function openStudentProfile(studentId) {
     renderStudentAttendance(studentId);
     renderParentContacts(studentId);
     renderStudentFees(studentId);
-    renderStudentAcademicHistory(studentId);
 
     showStudentProfileTab('overview');
 
@@ -2202,7 +1938,7 @@ function closeStudentProfileModal() {
 }
 
 function showStudentProfileTab(tab) {
-    const tabs = ['overview', 'attendance', 'contacts', 'fees', 'records'];
+    const tabs = ['overview', 'attendance', 'contacts', 'fees'];
     tabs.forEach(t => {
         const btn = document.getElementById(`profileTab-${t}`);
         const panel = document.getElementById(`profile${t.charAt(0).toUpperCase() + t.slice(1)}Panel`);
@@ -2400,7 +2136,6 @@ function deleteClassRecord(button, classId) {
     let classes = getData('classes') || [];
     classes = classes.filter(c => c.id !== classId);
     if (saveData('classes', classes)) {
-        deleteRowFromBackend('classes', classId);
         window._classes = classes;
         if (button) button.closest('.class-card')?.remove();
         populateTimetableClassSelect();
@@ -2572,9 +2307,6 @@ function openStudentModal(editId = null) {
         if (student) {
             document.getElementById('studentNameInput').value = student.name || '';
             document.getElementById('studentClassSelect').value = student.class || '';
-            if (document.getElementById('studentEnrollmentYearInput')) {
-                document.getElementById('studentEnrollmentYearInput').value = student.enrollmentYear || '';
-            }
             if (document.getElementById('studentGenderSelect')) {
                 document.getElementById('studentGenderSelect').value = student.gender || '';
             }
@@ -2583,6 +2315,9 @@ function openStudentModal(editId = null) {
             }
             if (document.getElementById('studentPhoneInput')) {
                 document.getElementById('studentPhoneInput').value = student.phone || '';
+            }
+            if (document.getElementById('studentEnrollmentYearInput')) {
+                document.getElementById('studentEnrollmentYearInput').value = student.enrollmentYear || '';
             }
         }
     }
@@ -2625,13 +2360,17 @@ document.addEventListener('submit', function(e) {
 
         const name = document.getElementById('studentNameInput').value.trim();
         const studentClass = document.getElementById('studentClassSelect').value;
-        const enrollmentYear = document.getElementById('studentEnrollmentYearInput')?.value.trim() || '';
         const gender = document.getElementById('studentGenderSelect')?.value || '';
         const parentName = document.getElementById('studentParentInput')?.value.trim() || '';
         const phone = document.getElementById('studentPhoneInput')?.value.trim() || '';
+        const enrollmentYear = document.getElementById('studentEnrollmentYearInput')?.value.trim() || '';
         if (!name || !studentClass) return showNotification('Please provide student name and class', 'warning');
         const classes = getData('classes') || [];
         if (!classes.find(c => c.name === studentClass)) return showNotification('Selected class does not exist', 'error');
+
+        if (enrollmentYear && (isNaN(enrollmentYear) || enrollmentYear.length !== 4)) {
+            return showNotification('Enrollment year must be a 4-digit year (e.g. 2027)', 'warning');
+        }
 
         if (editId) {
             updateStudentRecord(editId, name, studentClass, gender, parentName, phone, enrollmentYear);
@@ -2667,10 +2406,10 @@ function addStudentToTable(name, studentClass, gender, parentName, phone, enroll
         gender: gender || '',
         parentName: parentName || '',
         phone: phone || '',
+        enrollmentYear: enrollmentYear || '',
         password: nextId,
         status: 'Active',
-        dateAdded: new Date().toISOString(),
-        enrollmentYear: enrollmentYear ? parseInt(enrollmentYear) : null
+        dateAdded: new Date().toISOString()
     };
     students.push(newStudent);
     
@@ -2706,7 +2445,7 @@ function updateStudentRecord(studentId, name, studentClass, gender, parentName, 
         gender: gender || '',
         parentName: parentName || '',
         phone: phone || '',
-        enrollmentYear: enrollmentYear ? parseInt(enrollmentYear) : (students[idx].enrollmentYear || null)
+        enrollmentYear: enrollmentYear || ''
     };
 
     if (saveData('students', students)) {
@@ -2793,19 +2532,8 @@ function deleteStudentRecord(button, studentId) {
         attendanceLegacy = attendanceLegacy.filter(a => a.studentId !== studentId);
         let attendanceTeacher = getData('attendance') || [];
         attendanceTeacher = attendanceTeacher.filter(a => a.studentId !== studentId);
-        let history = getData('academic_history') || [];
-        history = history.filter(h => h.studentId !== studentId);
         
-        if (saveData('students', students) && saveData('fees', fees) && saveData('parentContacts', contacts) && saveData('attendanceRecords', attendanceLegacy) && saveData('attendance', attendanceTeacher) && saveData('academic_history', history)) {
-            // Explicit remote deletes — the saveData calls above only
-            // upsert whoever is LEFT in each array, so this is the only
-            // thing that actually removes this student's rows from
-            // Supabase.
-            deleteRowFromBackend('students', studentId);
-            deleteRowsFromBackend('fees', 'student_id', studentId);
-            deleteRowsFromBackend('attendance', 'student_id', studentId);
-            deleteRowsFromBackend('academic_history', 'student_id', studentId);
-
+        if (saveData('students', students) && saveData('fees', fees) && saveData('parentContacts', contacts) && saveData('attendanceRecords', attendanceLegacy) && saveData('attendance', attendanceTeacher)) {
             button.closest('tr').remove();
 
             const tableBody = document.getElementById('studentsTableBody');
@@ -2894,7 +2622,6 @@ function deleteTeacherRecord(button, teacherId) {
         teachers = teachers.filter(t => t.id !== teacherId);
         
         if (saveData('teachers', teachers)) {
-            deleteRowFromBackend('teachers', teacherId);
             button.closest('tr').remove();
             const tableBody = document.getElementById('teachersTableBody');
             if (tableBody && tableBody.children.length === 0) {
@@ -3372,7 +3099,6 @@ function editStudentFees(studentId) {
 
         fees = fees.filter(f => f.studentId !== studentId);
         if (saveData('fees', fees)) {
-            deleteRowsFromBackend('fees', 'student_id', studentId);
             loadFeesFromStorage();
             updateFeeSummary();
             addActivity('✏️', `Cleared all fee records for ${student.name}`);
@@ -3395,7 +3121,6 @@ function editStudentFees(studentId) {
 
     fees = fees.filter(f => f.id !== targetPayment.id);
     if (saveData('fees', fees)) {
-        deleteRowFromBackend('fees', targetPayment.id);
         loadFeesFromStorage();
         updateFeeSummary();
         updateDashboardStats();
@@ -3500,7 +3225,6 @@ function deleteFeeRecord(button, studentId) {
         fees = fees.filter(f => f.studentId !== studentId);
         
         if (saveData('fees', fees)) {
-            deleteRowsFromBackend('fees', 'student_id', studentId);
             button.closest('tr').remove();
             updateFeeSummary();
             showNotification('Fee record deleted!', 'success');
@@ -3802,7 +3526,6 @@ function deleteTimetableEntry(button, id) {
     let timetables = getData('timetables') || [];
     timetables = timetables.filter(t => t.id !== id);
     if (saveData('timetables', timetables)) {
-        deleteRowFromBackend('timetables', id);
         button.closest('tr').remove();
         window._timetables = timetables;
         showNotification('Entry deleted', 'success');
