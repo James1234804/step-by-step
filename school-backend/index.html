@@ -240,6 +240,24 @@
                             <button class="btn btn-secondary" onclick="openUserModal()">+ Add Guest</button>
                         </div>
                     </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><span data-lucide="shield-check"></span>Data Backup</h2>
+                        </div>
+                        <p class="subtitle" style="margin: 0 0 0.9rem 0; font-size: 0.85rem;">Keep an independent copy of everything, separate from the online database. Download it regularly and store it somewhere safe (email, cloud drive, USB).</p>
+                        <div class="action-buttons">
+                            <button class="btn btn-primary" onclick="exportAllData()">
+                                <span data-lucide="download" style="width:15px; height:15px; vertical-align:-2px;"></span>
+                                Download Backup
+                            </button>
+                            <button class="btn btn-secondary" onclick="triggerImportBackup()">
+                                <span data-lucide="upload" style="width:15px; height:15px; vertical-align:-2px;"></span>
+                                Restore from Backup
+                            </button>
+                            <input type="file" id="backupFileInput" accept="application/json" style="display:none;" onchange="handleBackupFileSelected(event)">
+                        </div>
+                    </div>
                 </div>
             </section>
 
