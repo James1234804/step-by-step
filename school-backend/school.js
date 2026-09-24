@@ -3869,3 +3869,109 @@ function printTable(tableId) {
     printWindow.document.close();
     printWindow.print();
 }
+
+// ===========================
+// FULL DATA BACKUP / RESTORE
+// ===========================
+// Supabase is the real source of truth, but it's still one hosted project
+// on a free tier with no point-in-time recovery. This gives the school a
+// second, independent copy of everything — a plain file they hold onto
+// themselves — so the school is never solely dependent on one service
+// staying up and intact forever.
+
+function exportAllData() {
+    const backup = {
+        exportedAt: new Date().toISOString(),
+        schoolName: 'Shallom High School - Step by Step Academy',
+        data: {
+            students: getData('students') || [],
+            teachers: getData('teachers') || [],
+            classes: getData('classes') || [],
+            timetables: getData('timetables') || [],
+            fees: getData('fees') || [],
+            attendance: getData('attendance') || [],
+            attendanceRecords: getData('attendanceRecords') || [],
+            grades: getData('grades') || [],
+            parentContacts: getData('parentContacts') || [],
+            users: getData('users') || [],
+            activities: getData('activities') || [],
+            attendanceNotifications: getData('attendanceNotifications') || []
+        },
+        settings: {
+            totalFeesDue: localStorage.getItem('totalFeesDue') || '',
+            schoolCurrency: localStorage.getItem('schoolCurrency') || 'USD',
+            lastProcessedAcademicYear: localStorage.getItem('lastProcessedAcademicYear') || ''
+        }
+    };
+
+    const json = JSON.stringify(backup, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const today = new Date().toISOString().split('T')[0];
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `shallom-school-backup-${today}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+
+    showNotification('Backup downloaded — keep this file somewhere safe (email it to yourself, save it to cloud storage, etc.).', 'success');
+    addActivity('💾', 'Full data backup exported and downloaded');
+}
+
+function triggerImportBackup() {
+    const input = document.getElementById('backupFileInput');
+    if (input) input.click();
+}
+
+// Restores a previously downloaded backup. This goes through the normal
+// saveData() path, which is upsert-only (see syncToBackend) — so restoring
+// a backup can only add or update records, never wipe anything that
+// currently exists in Supabase but isn't in the backup file.
+function handleBackupFileSelected(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (!confirm('This will restore records from that backup file into the system, updating any existing records with matching IDs. It will not delete anything currently in the system. Continue?')) {
+        event.target.value = '';
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const backup = JSON.parse(e.target.result);
+            const data = backup.data || {};
+
+            const restoreKeys = ['students', 'teachers', 'classes', 'timetables', 'fees', 'attendance', 'attendanceRecords', 'grades', 'parentContacts', 'users', 'activities', 'attendanceNotifications'];
+            let restoredCount = 0;
+            restoreKeys.forEach(key => {
+                if (Array.isArray(data[key])) {
+                    saveData(key, data[key]);
+                    restoredCount++;
+                }
+            });
+
+            if (backup.settings) {
+                if (backup.settings.totalFeesDue) { localStorage.setItem('totalFeesDue', backup.settings.totalFeesDue); syncSetting('totalFeesDue', backup.settings.totalFeesDue); }
+                if (backup.settings.schoolCurrency) { localStorage.setItem('schoolCurrency', backup.settings.schoolCurrency); syncSetting('schoolCurrency', backup.settings.schoolCurrency); }
+                if (backup.settings.lastProcessedAcademicYear) { localStorage.setItem('lastProcessedAcademicYear', backup.settings.lastProcessedAcademicYear); syncSetting('lastProcessedAcademicYear', backup.settings.lastProcessedAcademicYear); }
+            }
+
+            if (restoredCount === 0) {
+                showNotification('That file did not look like a valid Shallom School backup.', 'error');
+                return;
+            }
+
+            showNotification('Backup restored successfully. Reloading the page...', 'success');
+            addActivity('♻️', `Data restored from backup file: ${file.name}`);
+            setTimeout(() => window.location.reload(), 1200);
+        } catch (err) {
+            console.error('Backup restore failed:', err);
+            showNotification('Could not read that file — make sure it is a valid backup exported from this system.', 'error');
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
