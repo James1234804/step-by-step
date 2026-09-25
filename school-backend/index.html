@@ -620,6 +620,46 @@
                     <button class="btn btn-primary" onclick="showAddTeacherForm()">+ Add Teacher</button>
                 </div>
 
+                <!-- Teacher Stats Cards — each is clickable and opens the matching group's schedule detail -->
+                <div class="stats-grid" id="teacherStatsGrid">
+                    <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('total')" title="Click to view all teachers">
+                        <div class="stat-icon tone-blue"><span data-lucide="graduation-cap"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Total Teachers</h3>
+                            <p id="teacherStatTotal" class="stat-value">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('active')" title="Click to view active teachers">
+                        <div class="stat-icon tone-green"><span data-lucide="check-circle"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Active</h3>
+                            <p id="teacherStatActive" class="stat-value">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('inactive')" title="Click to view inactive teachers">
+                        <div class="stat-icon tone-navy"><span data-lucide="user-x"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Inactive</h3>
+                            <p id="teacherStatInactive" class="stat-value">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('morning')" title="Click to view morning session teachers">
+                        <div class="stat-icon tone-amber"><span data-lucide="sunrise"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Morning Session</h3>
+                            <p id="teacherStatMorning" class="stat-value">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('afternoon')" title="Click to view afternoon session teachers">
+                        <div class="stat-icon tone-navy"><span data-lucide="sunset"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Afternoon Session</h3>
+                            <p id="teacherStatAfternoon" class="stat-value">0</p>
+                        </div>
+                    </div>
+                </div>
+                <p class="subtitle" style="margin: -0.5rem 0 1.2rem 0; font-size: 0.82rem;">Morning/Afternoon are calculated automatically from each teacher's timetable entries — nothing to set manually. A teacher teaching in both parts of the day counts toward both cards.</p>
+
                 <div class="filters">
                     <input type="text" id="teacherSearch" placeholder="Search teachers..." class="search-input">
                     <select id="departmentFilter" class="filter-select">
@@ -648,6 +688,17 @@
                     </table>
                 </div>
             </section>
+
+            <!-- Teacher Group / Individual Detail Modal -->
+            <div id="teacherDetailModal" class="modal" aria-hidden="true">
+                <div class="modal-content profile-modal-content">
+                    <div class="modal-header">
+                        <h3 id="teacherDetailTitle">Teacher Detail</h3>
+                        <button class="modal-close" onclick="closeTeacherDetailModal()">✕</button>
+                    </div>
+                    <div id="teacherDetailBody"></div>
+                </div>
+            </div>
 
             <!-- ===== FEES SECTION ===== -->
             <section id="fees-section" class="content-section">
