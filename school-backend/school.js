@@ -1935,6 +1935,7 @@ function showAddTimetableEntry() {
         showNotification('Timetable entry added', 'success');
         loadTimetablesFromStorage();
         populateTimetableClassSelect();
+        renderTeacherStats(); // morning/afternoon counts depend on timetable entries
     } else {
         showNotification('Error saving timetable entry', 'error');
     }
@@ -2343,6 +2344,209 @@ function loadTeachersFromStorage() {
         console.log('No teachers in storage');
         tableBody.innerHTML = '<tr class="table-empty-row"><td colspan="7">No teachers added yet.</td></tr>';
     }
+
+    renderTeacherStats();
+}
+
+// ===========================
+// TEACHERS DASHBOARD — SESSION STATS + DETAIL VIEW
+// ===========================
+// "Morning session" / "Afternoon session" are not stored fields on a
+// teacher — they're derived live from that teacher's actual timetable
+// entries, so the counts never go stale as the timetable changes. A
+// teacher with entries starting before 12:00 counts as Morning; at or
+// after 12:00 counts as Afternoon. A teacher teaching across both parts of
+// the day counts toward both cards (realistic for split-shift teachers). A
+// teacher with no timetable entries yet counts toward neither.
+
+function getTeacherScheduleEntries(teacherName) {
+    const timetables = getData('timetables') || [];
+    return timetables.filter(t => t.teacher === teacherName);
+}
+
+function classifyTeacherSession(teacherName) {
+    const entries = getTeacherScheduleEntries(teacherName);
+    let morning = false;
+    let afternoon = false;
+    entries.forEach(e => {
+        const hour = parseInt((e.start || '').split(':')[0]);
+        if (isNaN(hour)) return;
+        if (hour < 12) morning = true;
+        else afternoon = true;
+    });
+    return { morning, afternoon, hasSchedule: entries.length > 0 };
+}
+
+function computeTeacherStats() {
+    const teachers = getData('teachers') || [];
+    const total = teachers.length;
+    const active = teachers.filter(t => (t.status || 'Active') === 'Active').length;
+    const inactive = teachers.filter(t => t.status === 'Inactive').length;
+
+    let morningCount = 0;
+    let afternoonCount = 0;
+    teachers.forEach(t => {
+        const session = classifyTeacherSession(t.name);
+        if (session.morning) morningCount++;
+        if (session.afternoon) afternoonCount++;
+    });
+
+    return { total, active, inactive, morningCount, afternoonCount };
+}
+
+function renderTeacherStats() {
+    const stats = computeTeacherStats();
+    const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+    setText('teacherStatTotal', stats.total);
+    setText('teacherStatActive', stats.active);
+    setText('teacherStatInactive', stats.inactive);
+    setText('teacherStatMorning', stats.morningCount);
+    setText('teacherStatAfternoon', stats.afternoonCount);
+}
+
+// Opens the shared detail modal, filtered to a stat-card group.
+function showTeacherGroupDetail(group) {
+    const teachers = getData('teachers') || [];
+    let filtered = [];
+    let title = '';
+
+    switch (group) {
+        case 'total':
+            filtered = teachers; title = 'All Teachers';
+            break;
+        case 'active':
+            filtered = teachers.filter(t => (t.status || 'Active') === 'Active'); title = 'Active Teachers';
+            break;
+        case 'inactive':
+            filtered = teachers.filter(t => t.status === 'Inactive'); title = 'Inactive Teachers';
+            break;
+        case 'morning':
+            filtered = teachers.filter(t => classifyTeacherSession(t.name).morning); title = 'Morning Session Teachers';
+            break;
+        case 'afternoon':
+            filtered = teachers.filter(t => classifyTeacherSession(t.name).afternoon); title = 'Afternoon Session Teachers';
+            break;
+        default:
+            filtered = teachers; title = 'Teachers';
+    }
+
+    renderTeacherDetailModal(title, filtered);
+}
+
+// Same modal, used for a single teacher via the row's "View" action.
+function viewTeacherDetail(teacherId) {
+    const teachers = getData('teachers') || [];
+    const teacher = teachers.find(t => t.id === teacherId);
+    if (!teacher) return showNotification('Teacher not found', 'error');
+    renderTeacherDetailModal(`${teacher.name} — Schedule`, [teacher]);
+}
+
+function renderTeacherDetailModal(title, teachersList) {
+    const modal = document.getElementById('teacherDetailModal');
+    const titleEl = document.getElementById('teacherDetailTitle');
+    const body = document.getElementById('teacherDetailBody');
+    if (!modal || !titleEl || !body) return;
+
+    titleEl.textContent = `${title} (${(teachersList || []).length})`;
+
+    if (!teachersList || teachersList.length === 0) {
+        body.innerHTML = '<p style="color:#999; padding:1rem;">No teachers in this group.</p>';
+    } else {
+        let html = '';
+        teachersList.forEach(t => {
+            const status = t.status || 'Active';
+            const statusClass = status === 'Active' ? 'status-active' : 'status-inactive';
+            const entries = getTeacherScheduleEntries(t.name)
+                .slice()
+                .sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+
+            html += `
+                <div class="card" style="margin-bottom:1rem; padding:1rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.6rem;">
+                        <div>
+                            <strong style="font-size:1.02rem;">${t.name}</strong>
+                            <span style="color:#666; margin-left:0.5rem;">${t.department || 'No department'}</span>
+                        </div>
+                        <span class="status-badge ${statusClass}">${status}</span>
+                    </div>
+            `;
+
+            if (entries.length === 0) {
+                html += '<p style="color:#999; margin:0;">No timetable entries recorded for this teacher yet.</p>';
+            } else {
+                html += `
+                    <table class="table" style="margin:0;">
+                        <thead>
+                            <tr><th>Day</th><th>Time</th><th>Class</th><th>Subject</th></tr>
+                        </thead>
+                        <tbody>
+                `;
+                entries.forEach(e => {
+                    html += `<tr><td>${e.day || '—'}</td><td>${e.start || '—'} - ${e.end || '—'}</td><td>${e.class || '—'}</td><td>${e.subject || '—'}</td></tr>`;
+                });
+                html += '</tbody></table>';
+            }
+
+            html += '</div>';
+        });
+        body.innerHTML = html;
+    }
+
+    modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeTeacherDetailModal() {
+    const modal = document.getElementById('teacherDetailModal');
+    if (modal) modal.setAttribute('aria-hidden', 'true');
+}
+
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('teacherDetailModal');
+    if (!modal) return;
+    if (modal.getAttribute('aria-hidden') === 'false' && e.target === modal) closeTeacherDetailModal();
+});
+
+// Flips a teacher between Active/Inactive — same pattern as students, and
+// what actually makes the Active/Inactive stat cards mean something.
+function toggleTeacherStatus(teacherId) {
+    let teachers = getData('teachers') || [];
+    const idx = teachers.findIndex(t => t.id === teacherId);
+    if (idx === -1) return showNotification('Teacher not found', 'error');
+
+    const current = teachers[idx].status || 'Active';
+    teachers[idx].status = current === 'Active' ? 'Inactive' : 'Active';
+
+    if (saveData('teachers', teachers)) {
+        loadTeachersFromStorage();
+        showNotification(`${teachers[idx].name} marked as ${teachers[idx].status}`, 'success');
+        addActivity('🔄', `${teachers[idx].name} marked as ${teachers[idx].status}`);
+    } else {
+        showNotification('Error updating teacher status', 'error');
+    }
+}
+
+// Prompt-based edit, consistent with showAddTeacherForm's existing style
+// (no dedicated teacher modal exists yet — this can be upgraded to one
+// later without affecting anything else).
+function editTeacherRecord(teacherId) {
+    let teachers = getData('teachers') || [];
+    const idx = teachers.findIndex(t => t.id === teacherId);
+    if (idx === -1) return showNotification('Teacher not found', 'error');
+
+    const current = teachers[idx];
+    const name = prompt('Name:', current.name) || current.name;
+    const department = prompt('Department:', current.department) || current.department;
+    const email = prompt('Email:', current.email) || current.email;
+    const phone = prompt('Phone:', current.phone) || current.phone;
+
+    teachers[idx] = { ...current, name, department, email, phone };
+    if (saveData('teachers', teachers)) {
+        loadTeachersFromStorage();
+        showNotification('Teacher updated successfully!', 'success');
+        addActivity('✏️', `Teacher updated: ${name}`);
+    } else {
+        showNotification('Error updating teacher', 'error');
+    }
 }
 
 function getStudentFeeStatusBadge(studentId) {
@@ -2396,22 +2600,34 @@ function addStudentRowToTable(student, tableBody) {
     if (window.lucide) lucide.createIcons();
 }
 
+// Renders one teacher row with real status (defaulting older records with
+// no status field to Active) and the same icon-only action buttons used
+// on the Students table, for a consistent look across the app.
 function addTeacherRowToTable(teacher, tableBody) {
+    const status = teacher.status || 'Active';
+    const statusClass = status === 'Active' ? 'status-active' : 'status-inactive';
+    const toggleIcon = status === 'Active' ? 'user-x' : 'user-check';
+    const toggleTitle = status === 'Active' ? 'Deactivate' : 'Activate';
+
     const newRow = document.createElement('tr');
     newRow.innerHTML = `
         <td>${teacher.id}</td>
         <td>${teacher.name}</td>
-        <td>${teacher.department}</td>
-        <td>${teacher.email}</td>
-        <td>${teacher.phone}</td>
-        <td><span class="status-badge status-active">Active</span></td>
+        <td>${teacher.department || '—'}</td>
+        <td>${teacher.email || '—'}</td>
+        <td>${teacher.phone || '—'}</td>
+        <td><span class="status-badge ${statusClass}">${status}</span></td>
         <td>
-            <button class="btn-small btn-info" onclick="alert('View: ${teacher.name}')">View</button>
-            <button class="btn-small btn-warning" onclick="editRecord('teacher')">Edit</button>
-            <button class="btn-small btn-danger" onclick="deleteTeacherRecord(this, '${teacher.id}')">Delete</button>
+            <div class="table-actions">
+                <button class="icon-action-btn action-view" title="View schedule" onclick="viewTeacherDetail('${teacher.id}')"><span data-lucide="eye"></span></button>
+                <button class="icon-action-btn action-edit" title="Edit" onclick="editTeacherRecord('${teacher.id}')"><span data-lucide="pencil"></span></button>
+                <button class="icon-action-btn action-toggle" title="${toggleTitle}" onclick="toggleTeacherStatus('${teacher.id}')"><span data-lucide="${toggleIcon}"></span></button>
+                <button class="icon-action-btn action-delete" title="Delete" onclick="deleteTeacherRecord(this, '${teacher.id}')"><span data-lucide="trash-2"></span></button>
+            </div>
         </td>
     `;
     tableBody.appendChild(newRow);
+    if (window.lucide) lucide.createIcons();
 }
 
 // ===========================
@@ -3675,6 +3891,7 @@ function editTimetableEntry(id) {
         showNotification('Timetable updated', 'success');
         const classSelect = document.getElementById('timetableClassSelect');
         if (classSelect) renderTimetableForClass(classSelect.value);
+        renderTeacherStats(); // morning/afternoon counts depend on timetable entries
     } else {
         showNotification('Error updating timetable', 'error');
     }
@@ -3689,6 +3906,7 @@ function deleteTimetableEntry(button, id) {
         button.closest('tr').remove();
         window._timetables = timetables;
         showNotification('Entry deleted', 'success');
+        renderTeacherStats(); // morning/afternoon counts depend on timetable entries
     } else {
         showNotification('Error deleting entry', 'error');
     }
