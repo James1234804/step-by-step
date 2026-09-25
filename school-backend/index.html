@@ -463,7 +463,10 @@
                             </div>
                             <div class="form-row">
                                 <label>Class Teacher</label>
-                                <input type="text" id="classTeacherInput" placeholder="Teacher name">
+                                <select id="classTeacherSelect">
+                                    <option value="">No teacher assigned</option>
+                                    <option value="__add_new__">+ Add New Teacher</option>
+                                </select>
                             </div>
                             <div class="form-row">
                                 <label>Room</label>
@@ -688,6 +691,38 @@
                     </table>
                 </div>
             </section>
+
+            <!-- Teacher Modal (Add/Edit) — single source of truth for teacher records -->
+            <div id="teacherModal" class="modal" aria-hidden="true">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 id="teacherModalTitle">Add Teacher</h3>
+                        <button class="modal-close" onclick="closeTeacherModal()">✕</button>
+                    </div>
+                    <form id="teacherForm">
+                        <div class="form-row">
+                            <label>Name</label>
+                            <input type="text" id="teacherNameInput" required placeholder="Teacher full name">
+                        </div>
+                        <div class="form-row">
+                            <label>Department</label>
+                            <input type="text" id="teacherDepartmentInput" placeholder="e.g. Mathematics">
+                        </div>
+                        <div class="form-row">
+                            <label>Email</label>
+                            <input type="email" id="teacherEmailInput" placeholder="teacher@example.com">
+                        </div>
+                        <div class="form-row">
+                            <label>Phone</label>
+                            <input type="text" id="teacherPhoneInput" placeholder="e.g. 0771234567">
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Save Teacher</button>
+                            <button type="button" class="btn btn-secondary" onclick="closeTeacherModal()">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
 
             <!-- Teacher Group / Individual Detail Modal -->
             <div id="teacherDetailModal" class="modal" aria-hidden="true">
