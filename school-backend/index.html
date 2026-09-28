@@ -463,10 +463,13 @@
                             </div>
                             <div class="form-row">
                                 <label>Class Teacher</label>
-                                <select id="classTeacherSelect">
-                                    <option value="">No teacher assigned</option>
-                                    <option value="__add_new__">+ Add New Teacher</option>
-                                </select>
+                                <div style="display:flex; gap:0.5rem; align-items:center;">
+                                    <select id="classTeacherSelect" style="flex:1;">
+                                        <option value="">No teacher assigned</option>
+                                    </select>
+                                    <button type="button" class="btn btn-secondary" style="white-space:nowrap;" onclick="addTeacherFromClassModal()">+ New Teacher</button>
+                                </div>
+                                <p class="subtitle" style="margin: 0.35rem 0 0 0; font-size: 0.78rem;">Only existing teacher records can be assigned — this keeps every teacher's contact details correct in one place. Don't see them listed? Use "+ New Teacher" to add them properly, right here.</p>
                             </div>
                             <div class="form-row">
                                 <label>Room</label>
@@ -475,6 +478,40 @@
                             <div class="form-actions">
                                 <button type="submit" class="btn btn-primary">Save Class</button>
                                 <button type="button" class="btn btn-secondary" onclick="closeClassModal()">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Teacher Modal (single source of truth for creating/editing teachers,
+                     used both from the Teachers page and from the Class form's
+                     "+ New Teacher" shortcut) -->
+                <div id="teacherModal" class="modal" aria-hidden="true">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="teacherModalTitle">Add Teacher</h3>
+                            <button class="modal-close" onclick="closeTeacherModal()">✕</button>
+                        </div>
+                        <form id="teacherForm">
+                            <div class="form-row">
+                                <label>Name</label>
+                                <input type="text" id="teacherNameInput" required placeholder="Teacher full name">
+                            </div>
+                            <div class="form-row">
+                                <label>Department</label>
+                                <input type="text" id="teacherDepartmentInput" placeholder="e.g., Mathematics">
+                            </div>
+                            <div class="form-row">
+                                <label>Email</label>
+                                <input type="email" id="teacherEmailInput" placeholder="e.g., name@shallomhigh.edu">
+                            </div>
+                            <div class="form-row">
+                                <label>Phone</label>
+                                <input type="text" id="teacherPhoneInput" placeholder="e.g., 0771234567">
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Save Teacher</button>
+                                <button type="button" class="btn btn-secondary" onclick="closeTeacherModal()">Cancel</button>
                             </div>
                         </form>
                     </div>
@@ -620,7 +657,7 @@
             <section id="teachers-section" class="content-section">
                 <div class="section-header">
                     <h1>Teachers Management</h1>
-                    <button class="btn btn-primary" onclick="showAddTeacherForm()">+ Add Teacher</button>
+                    <button class="btn btn-primary" onclick="openTeacherModal()">+ Add Teacher</button>
                 </div>
 
                 <!-- Teacher Stats Cards — each is clickable and opens the matching group's schedule detail -->
@@ -691,38 +728,6 @@
                     </table>
                 </div>
             </section>
-
-            <!-- Teacher Modal (Add/Edit) — single source of truth for teacher records -->
-            <div id="teacherModal" class="modal" aria-hidden="true">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h3 id="teacherModalTitle">Add Teacher</h3>
-                        <button class="modal-close" onclick="closeTeacherModal()">✕</button>
-                    </div>
-                    <form id="teacherForm">
-                        <div class="form-row">
-                            <label>Name</label>
-                            <input type="text" id="teacherNameInput" required placeholder="Teacher full name">
-                        </div>
-                        <div class="form-row">
-                            <label>Department</label>
-                            <input type="text" id="teacherDepartmentInput" placeholder="e.g. Mathematics">
-                        </div>
-                        <div class="form-row">
-                            <label>Email</label>
-                            <input type="email" id="teacherEmailInput" placeholder="teacher@example.com">
-                        </div>
-                        <div class="form-row">
-                            <label>Phone</label>
-                            <input type="text" id="teacherPhoneInput" placeholder="e.g. 0771234567">
-                        </div>
-                        <div class="form-actions">
-                            <button type="submit" class="btn btn-primary">Save Teacher</button>
-                            <button type="button" class="btn btn-secondary" onclick="closeTeacherModal()">Cancel</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
 
             <!-- Teacher Group / Individual Detail Modal -->
             <div id="teacherDetailModal" class="modal" aria-hidden="true">
