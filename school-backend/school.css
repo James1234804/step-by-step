@@ -17,6 +17,7 @@
     --success-color: #16A34A;
     --danger-color: #DC2626;
     --warning-color: #EAB308;
+    --warning-dark: #B45309;
     --info-color: #475569;
     --light-bg: #F4F6F9;
     --dark-text: #1B2733;
@@ -26,6 +27,17 @@
     --shadow-sm: 0 1px 2px rgba(15, 37, 64, 0.06);
     --shadow-md: 0 4px 16px rgba(15, 37, 64, 0.08);
     --shadow-lg: 0 12px 32px rgba(15, 37, 64, 0.12);
+
+    /* Tint variants of the semantic colors above, used for badge/chip
+       backgrounds. Centralizing these means every badge, icon chip, and
+       highlighted panel in the app draws from the same small palette
+       instead of one-off hex values scattered through the file. */
+    --primary-tint: #FFF7ED;
+    --primary-tint-strong: #FCEADB;
+    --success-tint: #E5F6EA;
+    --warning-tint: #FDF6E3;
+    --danger-tint: #FDEAEA;
+    --slate-tint: #EEF1F4;
 }
 
 body {
@@ -341,7 +353,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 }
 
 .notif-item.unread {
-    background: #FFF7ED;
+    background: var(--primary-tint);
 }
 
 .notif-dot {
@@ -361,7 +373,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
     width: 30px;
     height: 30px;
     border-radius: 8px;
-    background: #FCEADB;
+    background: var(--primary-tint-strong);
     color: var(--primary-color);
     display: flex;
     align-items: center;
@@ -593,11 +605,11 @@ h1, h2, h3 { letter-spacing: -0.01em; }
     stroke-width: 2px;
 }
 
-.stat-icon.tone-blue { background: #FCEADB; color: var(--primary-color); }
-.stat-icon.tone-amber { background: #FDF1DE; color: var(--warning-color); }
-.stat-icon.tone-green { background: #E5F6EA; color: var(--success-color); }
-.stat-icon.tone-navy { background: #EEF1F4; color: var(--slate); }
-.stat-icon.tone-red { background: #FDEAEA; color: var(--danger-color); }
+.stat-icon.tone-blue { background: var(--primary-tint-strong); color: var(--primary-color); }
+.stat-icon.tone-amber { background: var(--warning-tint); color: var(--warning-color); }
+.stat-icon.tone-green { background: var(--success-tint); color: var(--success-color); }
+.stat-icon.tone-navy { background: var(--slate-tint); color: var(--slate); }
+.stat-icon.tone-red { background: var(--danger-tint); color: var(--danger-color); }
 
 .stat-info {
     flex: 1;
@@ -626,7 +638,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
    =========================== */
 
 .info-box {
-    background: #FFF7ED;
+    background: var(--primary-tint);
     border-left: 4px solid var(--primary-color);
     padding: 1rem 1.2rem;
     border-radius: 10px;
@@ -819,7 +831,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 }
 
 .insight-banner .btn:hover {
-    background: #FFF7ED;
+    background: var(--primary-tint);
 }
 
 /* ===========================
@@ -902,7 +914,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 
 .activity-time {
     font-size: 0.85rem;
-    color: #999;
+    color: var(--muted-text);
 }
 
 /* ===========================
@@ -961,8 +973,8 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 }
 
 .btn-warning {
-    background: #FDF6E3;
-    color: #B45309;
+    background: var(--warning-tint);
+    color: var(--warning-dark);
 }
 
 .btn-warning:hover {
@@ -970,7 +982,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 }
 
 .btn-danger {
-    background: #FDEAEA;
+    background: var(--danger-tint);
     color: var(--danger-color);
 }
 
@@ -1037,21 +1049,21 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 }
 
 .icon-action-btn.action-edit:hover {
-    color: #B45309;
+    color: var(--warning-dark);
     border-color: #FBEBC0;
-    background: #FDF6E3;
+    background: var(--warning-tint);
 }
 
 .icon-action-btn.action-toggle:hover {
-    color: #B45309;
+    color: var(--warning-dark);
     border-color: #FBEBC0;
-    background: #FDF6E3;
+    background: var(--warning-tint);
 }
 
 .icon-action-btn.action-delete:hover {
     color: var(--danger-color);
     border-color: #FBD5D5;
-    background: #FDEAEA;
+    background: var(--danger-tint);
 }
 
 /* ===========================
@@ -1248,7 +1260,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 }
 
 .class-badge {
-    background: #FCEADB;
+    background: var(--primary-tint-strong);
     color: var(--primary-color);
     padding: 0.3rem 0.8rem;
     border-radius: 20px;
@@ -1263,7 +1275,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .class-details p {
     margin-bottom: 0.5rem;
     font-size: 0.95rem;
-    color: #666;
+    color: var(--muted-text);
 }
 
 .class-details strong {
@@ -1332,7 +1344,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
    =========================== */
 
 .payment-student-info {
-    background: #FFF7ED;
+    background: var(--primary-tint);
     border-radius: 10px;
     padding: 1rem;
     margin-bottom: 1.2rem;
@@ -1518,6 +1530,9 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 
 /* ===========================
    STATUS BADGES
+   All badge tones now come from the same tint variables defined in
+   :root, so a "paid"/"active" badge, a stat icon chip, and a hover state
+   never drift into slightly different shades of the same color again.
    =========================== */
 
 .status-badge {
@@ -1529,22 +1544,22 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 }
 
 .status-present {
-    background: #E5F6EA;
+    background: var(--success-tint);
     color: var(--success-color);
 }
 
 .status-absent {
-    background: #FDEAEA;
+    background: var(--danger-tint);
     color: var(--danger-color);
 }
 
 .status-leave {
-    background: #FDF6E3;
+    background: var(--warning-tint);
     color: var(--warning-color);
 }
 
 .status-active {
-    background: #E5F6EA;
+    background: var(--success-tint);
     color: var(--success-color);
 }
 
@@ -1562,22 +1577,22 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 }
 
 .grade-a {
-    background: rgba(67, 233, 123, 0.2);
+    background: var(--success-tint);
     color: var(--success-color);
 }
 
 .grade-b {
-    background: rgba(79, 172, 254, 0.2);
-    color: var(--info-color);
+    background: var(--slate-tint);
+    color: var(--slate);
 }
 
 .grade-c {
-    background: rgba(255, 165, 2, 0.2);
-    color: var(--warning-color);
+    background: var(--warning-tint);
+    color: var(--warning-dark);
 }
 
 .grade-d {
-    background: rgba(245, 87, 108, 0.2);
+    background: var(--danger-tint);
     color: var(--danger-color);
 }
 
@@ -1586,21 +1601,21 @@ h1, h2, h3 { letter-spacing: -0.01em; }
    =========================== */
 
 .status-paid {
-    background: rgba(67, 233, 123, 0.2);
+    background: var(--success-tint);
     color: var(--success-color);
 }
 
 .status-pending {
-    background: rgba(255, 165, 2, 0.2);
-    color: var(--warning-color);
+    background: var(--warning-tint);
+    color: var(--warning-dark);
 }
 
 /* ===========================
    FEE SUMMARY
    =========================== */
 .status-warning {
-    background: #fff3cd;
-    color: #856404;
+    background: var(--warning-tint);
+    color: var(--warning-dark);
 }
 .fee-summary {
     display: grid;
@@ -1624,7 +1639,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 
 .summary-item h3 {
     font-size: 0.95rem;
-    color: #666;
+    color: var(--muted-text);
     margin-bottom: 0.8rem;
     font-weight: 600;
 }
