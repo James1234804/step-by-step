@@ -212,6 +212,7 @@ function mapRowForSupabase(table, item) {
                 name: item.name,
                 form_level: item.formLevel || null,
                 teacher: item.teacher || '',
+                teacher_id: item.teacherId || null,
                 room: item.room || ''
             };
         case 'fees':
@@ -280,7 +281,7 @@ function mapRowForSupabase(table, item) {
 function mapRowFromSupabase(table, row) {
     switch (table) {
         case 'classes':
-            return { id: row.id, name: row.name, formLevel: row.form_level, teacher: row.teacher, room: row.room };
+            return { id: row.id, name: row.name, formLevel: row.form_level, teacher: row.teacher, teacherId: row.teacher_id || '', room: row.room };
         case 'fees':
             return { id: row.id, studentId: row.student_id, studentName: row.student_name, class: row.class, amount: row.amount, status: row.status, term: row.term, year: row.year, datePaid: row.date_paid };
         case 'timetables':
@@ -294,6 +295,23 @@ function mapRowFromSupabase(table, row) {
         default:
             return row;
     }
+}
+
+// Looks up a teacher's current name from their id — the single place any
+// part of the app should go to display "who teaches this class", so a
+// teacher's name only ever needs to be correct in one record.
+function getTeacherNameById(teacherId) {
+    if (!teacherId) return '';
+    const teacher = (getData('teachers') || []).find(t => t.id === teacherId);
+    return teacher ? teacher.name : '';
+}
+
+// Resolves the display name for a class's teacher: prefers the real
+// teacherId link, falls back to the legacy plain-text name for classes
+// created before this system existed, and finally "—" if neither exists.
+function resolveClassTeacherName(cls) {
+    if (!cls) return '—';
+    return getTeacherNameById(cls.teacherId) || cls.teacher || '—';
 }
 
 function saveData(key, data) {
@@ -1407,7 +1425,7 @@ function renderClasses() {
                         <span class="class-badge">${count} Students</span>
                     </div>
                     <div class="class-details">
-                        <p><strong>Class Teacher:</strong> ${cls.teacher || '-'}</p>
+                        <p><strong>Class Teacher:</strong> ${resolveClassTeacherName(cls)}</p>
                         <p><strong>Room:</strong> ${cls.room || '-'}</p>
                     </div>
                     <div class="class-actions">
@@ -1481,7 +1499,7 @@ function renderClasses() {
                     <span class="class-badge">${count} Students</span>
                 </div>
                 <div class="class-details">
-                    <p><strong>Class Teacher:</strong> ${cls.teacher || '-'}</p>
+                    <p><strong>Class Teacher:</strong> ${resolveClassTeacherName(cls)}</p>
                     <p><strong>Room:</strong> ${cls.room || '-'}</p>
                 </div>
                 <div class="class-actions">
@@ -1502,16 +1520,6 @@ function filterClassesByFormLevel(formLevel) {
     renderClasses();
 }
 
-function showAddClassForm() {
-    console.log('showAddClassForm invoked');
-    const className = prompt('Enter class name (e.g., Form 1-A):');
-    if (!className) return;
-    const teacher = prompt('Enter class teacher name:');
-    const room = prompt('Enter room number:');
-
-    addClassToStorage({ name: className, teacher: teacher || '', room: room || '' });
-}
-
 function openClassModal(editId = null) {
     const modal = document.getElementById('classModal');
     if (!modal) return;
@@ -1527,10 +1535,60 @@ function openClassModal(editId = null) {
             document.getElementById('classFormLevelInput').value = cls.formLevel || '';
             const classLetter = cls.name.split('-').pop() || '';
             document.getElementById('classNameInput').value = classLetter;
-            document.getElementById('classTeacherInput').value = cls.teacher || '';
             document.getElementById('classRoomInput').value = cls.room || '';
+            // cls.teacherId is the real link; cls.teacher is only kept as a
+            // fallback for classes created before this existed, so an old
+            // class can still show/select the right teacher by name once.
+            populateClassTeacherSelect(cls.teacherId, cls.teacher);
+            return;
         }
     }
+    populateClassTeacherSelect('');
+}
+
+// Fills the "Class Teacher" dropdown inside the class form from the real,
+// current list of teachers — this is the fix for teachers being created
+// with only a name and nothing else: a class can now only ever point at
+// an existing, fully-detailed teacher record, never a loose typed string.
+function populateClassTeacherSelect(selectedId, legacyTeacherName) {
+    const select = document.getElementById('classTeacherSelect');
+    if (!select) return;
+    const teachers = getData('teachers') || [];
+
+    select.innerHTML = '<option value="">No teacher assigned</option>';
+    teachers.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.department ? `${t.name} (${t.department})` : t.name;
+        select.appendChild(opt);
+    });
+
+    let toSelect = selectedId || '';
+    if (!toSelect && legacyTeacherName) {
+        // One-time bridge for classes created before this system existed:
+        // if the class only has a plain teacher name on file, try to match
+        // it to a real teacher record so it displays correctly. Saving the
+        // class again will store the proper teacherId going forward.
+        const match = teachers.find(t => t.name === legacyTeacherName);
+        if (match) toSelect = match.id;
+    }
+    select.value = toSelect;
+}
+
+// Lets someone add a brand-new teacher without leaving the "Create Class"
+// flow. The class form's current values are held onto, the class modal
+// steps aside for the teacher form, and once the teacher is saved (with
+// full name/department/email/phone — never just a name) the class modal
+// reopens with that teacher already selected.
+function addTeacherFromClassModal() {
+    window._pendingClassFormState = {
+        editId: document.getElementById('classModal').dataset.editId || '',
+        formLevel: document.getElementById('classFormLevelInput').value,
+        name: document.getElementById('classNameInput').value,
+        room: document.getElementById('classRoomInput').value
+    };
+    document.getElementById('classModal').setAttribute('aria-hidden', 'true');
+    openTeacherModal(null, true);
 }
 
 function closeClassModal() {
@@ -1548,12 +1606,19 @@ document.addEventListener('submit', function(e) {
         const name = document.getElementById('classNameInput').value.trim();
         if (!formLevel) return showNotification('Form level is required', 'warning');
         if (!name) return showNotification('Class name is required', 'warning');
-        const teacher = document.getElementById('classTeacherInput').value.trim();
         const room = document.getElementById('classRoomInput').value.trim();
-        
+
+        // The class stores a real reference to a teacher record (teacherId),
+        // not a typed name — teacherName is kept alongside only so older
+        // parts of the UI that read cls.teacher as plain text still work.
+        const teacherId = document.getElementById('classTeacherSelect')?.value || '';
+        const teachers = getData('teachers') || [];
+        const teacherObj = teachers.find(t => t.id === teacherId);
+        const teacherName = teacherObj ? teacherObj.name : '';
+
         const fullClassName = `Form ${formLevel}-${name}`;
 
-        const clsObj = { name: fullClassName, formLevel, teacher, room };
+        const clsObj = { name: fullClassName, formLevel, teacherId, teacher: teacherName, room };
 
         if (editId) {
             let classes = getData('classes') || [];
@@ -1622,8 +1687,8 @@ function openUserModal() {
                         const clsName = this.value || '';
                         const classes = getData('classes') || [];
                         const cls = (Array.isArray(classes) ? classes : []).find(c => c.name === clsName);
-                        const teacherName = cls ? (cls.teacher || '') : '';
-                        usernameInput.value = teacherName || '';
+                        const teacherName = cls ? resolveClassTeacherName(cls) : '';
+                        usernameInput.value = teacherName === '—' ? '' : teacherName;
                     }
                 });
             roleSelect.dataset._guestWired = '1';
@@ -1663,7 +1728,8 @@ document.addEventListener('submit', function(e) {
             if (!selectedClass) return showNotification('Please select a class for the teacher', 'warning');
             const classes = getData('classes') || [];
             const cls = (Array.isArray(classes) ? classes : []).find(c => c.name === selectedClass);
-            const classTeacherName = cls ? (cls.teacher || name) : name;
+            const resolvedName = cls ? resolveClassTeacherName(cls) : '—';
+            const classTeacherName = resolvedName !== '—' ? resolvedName : name;
             if (!classTeacherName) return showNotification('Class teacher name is required', 'warning');
             username = classTeacherName;
         }
@@ -1970,7 +2036,7 @@ function openStudentProfile(studentId) {
 
     const classes = getData('classes') || window._classes || [];
     const cls = classes.find(c => c.name === student.class);
-    const classTeacher = cls ? (cls.teacher || '—') : '—';
+    const classTeacher = resolveClassTeacherName(cls);
 
     const status = student.status || 'Active';
     const statusClass = status === 'Active' ? 'status-active' : 'status-inactive';
@@ -2525,29 +2591,114 @@ function toggleTeacherStatus(teacherId) {
     }
 }
 
-// Prompt-based edit, consistent with showAddTeacherForm's existing style
-// (no dedicated teacher modal exists yet — this can be upgraded to one
-// later without affecting anything else).
 function editTeacherRecord(teacherId) {
-    let teachers = getData('teachers') || [];
-    const idx = teachers.findIndex(t => t.id === teacherId);
-    if (idx === -1) return showNotification('Teacher not found', 'error');
+    openTeacherModal(teacherId, false);
+}
 
-    const current = teachers[idx];
-    const name = prompt('Name:', current.name) || current.name;
-    const department = prompt('Department:', current.department) || current.department;
-    const email = prompt('Email:', current.email) || current.email;
-    const phone = prompt('Phone:', current.phone) || current.phone;
+// ===========================
+// TEACHER MODAL (single source of truth for creating/editing teachers)
+// ===========================
+// This is now the ONLY way a teacher record is created or changed anywhere
+// in the app — from the Teachers page's "+ Add Teacher" button and from
+// the Class form's "+ Add New Teacher" shortcut alike. Both paths require
+// the same full details (name, department, email, phone), so a teacher can
+// never come into existence with just a name and nothing else again.
 
-    teachers[idx] = { ...current, name, department, email, phone };
-    if (saveData('teachers', teachers)) {
-        loadTeachersFromStorage();
-        showNotification('Teacher updated successfully!', 'success');
-        addActivity('✏️', `Teacher updated: ${name}`);
-    } else {
-        showNotification('Error updating teacher', 'error');
+function openTeacherModal(editId = null, returnToClassModal = false) {
+    const modal = document.getElementById('teacherModal');
+    if (!modal) return;
+    modal.setAttribute('aria-hidden', 'false');
+    const form = document.getElementById('teacherForm');
+    if (form && form.reset) form.reset();
+
+    modal.dataset.editId = editId || '';
+    modal.dataset.returnToClassModal = returnToClassModal ? '1' : '';
+    document.getElementById('teacherModalTitle').textContent = editId ? 'Edit Teacher' : 'Add Teacher';
+
+    if (editId) {
+        const teachers = getData('teachers') || [];
+        const teacher = teachers.find(t => t.id === editId);
+        if (teacher) {
+            document.getElementById('teacherNameInput').value = teacher.name || '';
+            document.getElementById('teacherDepartmentInput').value = teacher.department || '';
+            document.getElementById('teacherEmailInput').value = teacher.email || '';
+            document.getElementById('teacherPhoneInput').value = teacher.phone || '';
+        }
     }
 }
+
+function closeTeacherModal() {
+    const modal = document.getElementById('teacherModal');
+    if (!modal) return;
+    modal.setAttribute('aria-hidden', 'true');
+    modal.dataset.editId = '';
+    modal.dataset.returnToClassModal = '';
+}
+
+document.addEventListener('submit', function(e) {
+    if (e.target && e.target.id === 'teacherForm') {
+        e.preventDefault();
+        const modal = document.getElementById('teacherModal');
+        const editId = modal?.dataset.editId || '';
+        const returnToClassModal = modal?.dataset.returnToClassModal === '1';
+
+        const name = document.getElementById('teacherNameInput').value.trim();
+        const department = document.getElementById('teacherDepartmentInput').value.trim();
+        const email = document.getElementById('teacherEmailInput').value.trim();
+        const phone = document.getElementById('teacherPhoneInput').value.trim();
+
+        if (!name) return showNotification('Teacher name is required', 'warning');
+
+        let savedTeacher = null;
+
+        if (editId) {
+            let teachers = getData('teachers') || [];
+            const idx = teachers.findIndex(t => t.id === editId);
+            if (idx === -1) return showNotification('Teacher not found', 'error');
+            teachers[idx] = { ...teachers[idx], name, department, email, phone };
+            if (!saveData('teachers', teachers)) return showNotification('Error updating teacher', 'error');
+            savedTeacher = teachers[idx];
+            loadTeachersFromStorage();
+            showNotification('Teacher updated successfully!', 'success');
+            addActivity('✏️', `Teacher updated: ${name}`);
+        } else {
+            let teachers = getData('teachers') || [];
+            if (!Array.isArray(teachers)) teachers = [];
+            const nextId = 'T' + String(teachers.length + 1).padStart(3, '0');
+            const newTeacher = { id: nextId, name, department, email, phone, status: 'Active' };
+            teachers.push(newTeacher);
+            if (!saveData('teachers', teachers)) return showNotification('Error saving teacher', 'error');
+            savedTeacher = newTeacher;
+            loadTeachersFromStorage();
+            showNotification('Teacher added successfully!', 'success');
+            addActivity('👩‍🏫', `New teacher added: ${newTeacher.name}`);
+        }
+
+        closeTeacherModal();
+
+        // If this teacher was created from inside the Class form's "+ Add
+        // New Teacher" shortcut, hand control straight back to that form —
+        // reopened with whatever the person had already typed restored,
+        // and the brand-new teacher pre-selected.
+        if (returnToClassModal && savedTeacher) {
+            const state = window._pendingClassFormState;
+            openClassModal(state?.editId || null);
+            if (state && !state.editId) {
+                document.getElementById('classFormLevelInput').value = state.formLevel || '';
+                document.getElementById('classNameInput').value = state.name || '';
+                document.getElementById('classRoomInput').value = state.room || '';
+            }
+            populateClassTeacherSelect(savedTeacher.id);
+            window._pendingClassFormState = null;
+        }
+    }
+});
+
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('teacherModal');
+    if (!modal) return;
+    if (modal.getAttribute('aria-hidden') === 'false' && e.target === modal) closeTeacherModal();
+});
 
 function getStudentFeeStatusBadge(studentId) {
     const fees = getData('fees') || [];
@@ -2932,53 +3083,14 @@ function deleteStudentRecord(button, studentId) {
 // ADD TEACHER FUNCTION
 // ===========================
 
+// Teachers are now only ever created or edited through openTeacherModal()
+// (see the "TEACHER MODAL" section above) — the real form with full
+// details, used identically from the Teachers page and from the Class
+// form's "+ New Teacher" shortcut. This function is kept only so any
+// existing "+ Add Teacher" button still works without needing to hunt
+// down every caller; it does no prompting of its own anymore.
 function showAddTeacherForm() {
-    const name = prompt('Enter teacher name:');
-    if (name) {
-        const department = prompt('Enter department:');
-        const email = prompt('Enter email:');
-        const phone = prompt('Enter phone number:');
-        
-        if (name && department && email && phone) {
-            addTeacherToTable(name, department, email, phone);
-            showNotification('Teacher added successfully!', 'success');
-        }
-    }
-}
-
-function addTeacherToTable(name, department, email, phone) {
-    console.log('Adding teacher:', name);
-    
-    let teachers = getData('teachers') || [];
-    
-    if (!Array.isArray(teachers)) {
-        teachers = [];
-    }
-    
-    const nextId = 'T' + String(teachers.length + 1).padStart(3, '0');
-    
-    const newTeacher = {
-        id: nextId,
-        name: name,
-        department: department,
-        email: email,
-        phone: phone,
-        status: 'Active'
-    };
-    
-    teachers.push(newTeacher);
-    
-    if (saveData('teachers', teachers)) {
-        const tableBody = document.getElementById('teachersTableBody');
-        const emptyRow = tableBody.querySelector('.table-empty-row');
-        if (emptyRow) emptyRow.remove();
-        addTeacherRowToTable(newTeacher, tableBody);
-        console.log('✓ Teacher added successfully');
-        updateDashboardStats();
-        addActivity('👩‍🏫', `New teacher added: ${newTeacher.name}`);
-    } else {
-        showNotification('Error saving teacher!', 'error');
-    }
+    openTeacherModal(null, false);
 }
 
 // ===========================
