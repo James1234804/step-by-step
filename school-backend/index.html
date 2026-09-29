@@ -660,41 +660,44 @@
                     <button class="btn btn-primary" onclick="openTeacherModal()">+ Add Teacher</button>
                 </div>
 
-                <!-- Teacher Stats Cards — each is clickable and opens the matching group's schedule detail -->
+                <!-- Teacher Stats Cards. Total/Active/Inactive are plain, read-only
+                     stats — no click behavior. Only Morning Session and Afternoon
+                     Session are interactive: clicking one opens the detail view
+                     listing exactly who's in that group, which class, and what time. -->
                 <div class="stats-grid" id="teacherStatsGrid">
-                    <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('total')" title="Click to view all teachers">
+                    <div class="stat-card">
                         <div class="stat-icon tone-blue"><span data-lucide="graduation-cap"></span></div>
                         <div class="stat-info">
                             <h3 class="stat-title">Total Teachers</h3>
                             <p id="teacherStatTotal" class="stat-value">0</p>
                         </div>
                     </div>
-                    <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('active')" title="Click to view active teachers">
+                    <div class="stat-card">
                         <div class="stat-icon tone-green"><span data-lucide="check-circle"></span></div>
                         <div class="stat-info">
                             <h3 class="stat-title">Active</h3>
                             <p id="teacherStatActive" class="stat-value">0</p>
                         </div>
                     </div>
-                    <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('inactive')" title="Click to view inactive teachers">
+                    <div class="stat-card">
                         <div class="stat-icon tone-navy"><span data-lucide="user-x"></span></div>
                         <div class="stat-info">
                             <h3 class="stat-title">Inactive</h3>
                             <p id="teacherStatInactive" class="stat-value">0</p>
                         </div>
                     </div>
-                    <div class="stat-card" title="Morning/Afternoon are calculated automatically from each teacher's timetable entries — nothing to set manually. A teacher teaching in both parts of the day counts toward both. Click a number to see who's in that group.">
-                        <div class="stat-icon tone-amber"><span data-lucide="sun"></span></div>
+                    <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('morning')" title="Click to see who's teaching in the morning, which class, and what time">
+                        <div class="stat-icon tone-amber"><span data-lucide="sunrise"></span></div>
                         <div class="stat-info">
-                            <h3 class="stat-title">Teaching Sessions</h3>
-                            <p class="stat-value" style="display:flex; gap:0.9rem; align-items:baseline;">
-                                <span style="cursor:pointer;" onclick="showTeacherGroupDetail('morning')" title="Morning session teachers">
-                                    <span data-lucide="sunrise" style="width:16px; height:16px; vertical-align:-2px; margin-right:2px;"></span><span id="teacherStatMorning">0</span>
-                                </span>
-                                <span style="cursor:pointer;" onclick="showTeacherGroupDetail('afternoon')" title="Afternoon session teachers">
-                                    <span data-lucide="sunset" style="width:16px; height:16px; vertical-align:-2px; margin-right:2px;"></span><span id="teacherStatAfternoon">0</span>
-                                </span>
-                            </p>
+                            <h3 class="stat-title">Morning Session</h3>
+                            <p id="teacherStatMorning" class="stat-value">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('afternoon')" title="Click to see who's teaching in the afternoon, which class, and what time">
+                        <div class="stat-icon tone-navy"><span data-lucide="sunset"></span></div>
+                        <div class="stat-info">
+                            <h3 class="stat-title">Afternoon Session</h3>
+                            <p id="teacherStatAfternoon" class="stat-value">0</p>
                         </div>
                     </div>
                 </div>
