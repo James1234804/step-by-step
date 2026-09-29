@@ -483,40 +483,6 @@
                     </div>
                 </div>
 
-                <!-- Teacher Modal (single source of truth for creating/editing teachers,
-                     used both from the Teachers page and from the Class form's
-                     "+ New Teacher" shortcut) -->
-                <div id="teacherModal" class="modal" aria-hidden="true">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h3 id="teacherModalTitle">Add Teacher</h3>
-                            <button class="modal-close" onclick="closeTeacherModal()">✕</button>
-                        </div>
-                        <form id="teacherForm">
-                            <div class="form-row">
-                                <label>Name</label>
-                                <input type="text" id="teacherNameInput" required placeholder="Teacher full name">
-                            </div>
-                            <div class="form-row">
-                                <label>Department</label>
-                                <input type="text" id="teacherDepartmentInput" placeholder="e.g., Mathematics">
-                            </div>
-                            <div class="form-row">
-                                <label>Email</label>
-                                <input type="email" id="teacherEmailInput" placeholder="e.g., name@shallomhigh.edu">
-                            </div>
-                            <div class="form-row">
-                                <label>Phone</label>
-                                <input type="text" id="teacherPhoneInput" placeholder="e.g., 0771234567">
-                            </div>
-                            <div class="form-actions">
-                                <button type="submit" class="btn btn-primary">Save Teacher</button>
-                                <button type="button" class="btn btn-secondary" onclick="closeTeacherModal()">Cancel</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-
                 <!-- Class Details Modal -->
                 <div id="classDetailsModal" class="modal" aria-hidden="true">
                     <div class="modal-content">
@@ -543,6 +509,44 @@
             </section>
 
             <!-- Student Modal -->
+            <!-- Teacher Modal (single source of truth for creating/editing teachers,
+                 used both from the Teachers page's "+ Add Teacher" button and from
+                 the Class form's "+ New Teacher" shortcut). Lives at the top level,
+                 outside any single content-section, so it works from every page —
+                 it was previously nested inside the Classes section, which meant
+                 it was hidden along with that section whenever another page was
+                 active, and "+ Add Teacher" appeared to do nothing from Teachers. -->
+            <div id="teacherModal" class="modal" aria-hidden="true">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 id="teacherModalTitle">Add Teacher</h3>
+                        <button class="modal-close" onclick="closeTeacherModal()">✕</button>
+                    </div>
+                    <form id="teacherForm">
+                        <div class="form-row">
+                            <label>Name</label>
+                            <input type="text" id="teacherNameInput" required placeholder="Teacher full name">
+                        </div>
+                        <div class="form-row">
+                            <label>Department</label>
+                            <input type="text" id="teacherDepartmentInput" placeholder="e.g., Mathematics">
+                        </div>
+                        <div class="form-row">
+                            <label>Email</label>
+                            <input type="email" id="teacherEmailInput" placeholder="e.g., name@shallomhigh.edu">
+                        </div>
+                        <div class="form-row">
+                            <label>Phone</label>
+                            <input type="text" id="teacherPhoneInput" placeholder="e.g., 0771234567">
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Save Teacher</button>
+                            <button type="button" class="btn btn-secondary" onclick="closeTeacherModal()">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
             <div id="studentModal" class="modal" aria-hidden="true">
                 <div class="modal-content">
                     <div class="modal-header">
