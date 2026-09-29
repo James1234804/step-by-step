@@ -483,6 +483,40 @@
                     </div>
                 </div>
 
+                <!-- Teacher Modal (single source of truth for creating/editing teachers,
+                     used both from the Teachers page and from the Class form's
+                     "+ New Teacher" shortcut) -->
+                <div id="teacherModal" class="modal" aria-hidden="true">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="teacherModalTitle">Add Teacher</h3>
+                            <button class="modal-close" onclick="closeTeacherModal()">✕</button>
+                        </div>
+                        <form id="teacherForm">
+                            <div class="form-row">
+                                <label>Name</label>
+                                <input type="text" id="teacherNameInput" required placeholder="Teacher full name">
+                            </div>
+                            <div class="form-row">
+                                <label>Department</label>
+                                <input type="text" id="teacherDepartmentInput" placeholder="e.g., Mathematics">
+                            </div>
+                            <div class="form-row">
+                                <label>Email</label>
+                                <input type="email" id="teacherEmailInput" placeholder="e.g., name@shallomhigh.edu">
+                            </div>
+                            <div class="form-row">
+                                <label>Phone</label>
+                                <input type="text" id="teacherPhoneInput" placeholder="e.g., 0771234567">
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Save Teacher</button>
+                                <button type="button" class="btn btn-secondary" onclick="closeTeacherModal()">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
                 <!-- Class Details Modal -->
                 <div id="classDetailsModal" class="modal" aria-hidden="true">
                     <div class="modal-content">
@@ -626,15 +660,7 @@
                     <button class="btn btn-primary" onclick="openTeacherModal()">+ Add Teacher</button>
                 </div>
 
-                <!-- Teacher Stats Cards — matches the Students page layout: 4 even
-                     cards, no explanatory text underneath. Total/Active/Inactive
-                     are each clickable like before. The former two separate
-                     Morning/Afternoon cards are combined into one "Teaching
-                     Sessions" card with two small clickable counts side by side,
-                     so the grid fills evenly instead of leaving one card
-                     orphaned on its own row. The explanation of how the counts
-                     are calculated now lives in this card's tooltip instead of
-                     a permanent paragraph on the page. -->
+                <!-- Teacher Stats Cards — each is clickable and opens the matching group's schedule detail -->
                 <div class="stats-grid" id="teacherStatsGrid">
                     <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('total')" title="Click to view all teachers">
                         <div class="stat-icon tone-blue"><span data-lucide="graduation-cap"></span></div>
@@ -657,22 +683,18 @@
                             <p id="teacherStatInactive" class="stat-value">0</p>
                         </div>
                     </div>
-                    <div class="stat-card" title="Calculated automatically from each teacher's timetable entries — nothing to set manually. A teacher teaching in both parts of the day counts toward both.">
-                        <div class="stat-icon tone-amber"><span data-lucide="clock"></span></div>
+                    <div class="stat-card" title="Morning/Afternoon are calculated automatically from each teacher's timetable entries — nothing to set manually. A teacher teaching in both parts of the day counts toward both. Click a number to see who's in that group.">
+                        <div class="stat-icon tone-amber"><span data-lucide="sun"></span></div>
                         <div class="stat-info">
                             <h3 class="stat-title">Teaching Sessions</h3>
-                            <div style="display:flex; gap:1.1rem; align-items:baseline; margin-top:0.15rem;">
-                                <span style="cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="showTeacherGroupDetail('morning')" title="Click to view morning session teachers">
-                                    <span data-lucide="sunrise" style="width:14px; height:14px;"></span>
-                                    <span class="stat-value" id="teacherStatMorning" style="font-size:1.15rem;">0</span>
-                                    <span style="font-size:0.72rem; color:var(--muted-text);">AM</span>
+                            <p class="stat-value" style="display:flex; gap:0.9rem; align-items:baseline;">
+                                <span style="cursor:pointer;" onclick="showTeacherGroupDetail('morning')" title="Morning session teachers">
+                                    <span data-lucide="sunrise" style="width:16px; height:16px; vertical-align:-2px; margin-right:2px;"></span><span id="teacherStatMorning">0</span>
                                 </span>
-                                <span style="cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="showTeacherGroupDetail('afternoon')" title="Click to view afternoon session teachers">
-                                    <span data-lucide="sunset" style="width:14px; height:14px;"></span>
-                                    <span class="stat-value" id="teacherStatAfternoon" style="font-size:1.15rem;">0</span>
-                                    <span style="font-size:0.72rem; color:var(--muted-text);">PM</span>
+                                <span style="cursor:pointer;" onclick="showTeacherGroupDetail('afternoon')" title="Afternoon session teachers">
+                                    <span data-lucide="sunset" style="width:16px; height:16px; vertical-align:-2px; margin-right:2px;"></span><span id="teacherStatAfternoon">0</span>
                                 </span>
-                            </div>
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -689,7 +711,7 @@
                 </div>
 
                 <div class="card">
-                    <table class="table">
+                    <table class="table table-compact">
                         <thead>
                             <tr>
                                 <th>ID</th>
@@ -842,42 +864,6 @@
 
         </main>
     </div>
-    </div>
-
-    <!-- Teacher Modal (single source of truth for creating/editing teachers,
-         used both from the Teachers page and from the Class form's
-         "+ New Teacher" shortcut). Lives at top level — a sibling of the
-         other page-independent modals below — so it can open correctly no
-         matter which section of the app you're currently on. -->
-    <div id="teacherModal" class="modal" aria-hidden="true">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="teacherModalTitle">Add Teacher</h3>
-                <button class="modal-close" onclick="closeTeacherModal()">✕</button>
-            </div>
-            <form id="teacherForm">
-                <div class="form-row">
-                    <label>Name</label>
-                    <input type="text" id="teacherNameInput" required placeholder="Teacher full name">
-                </div>
-                <div class="form-row">
-                    <label>Department</label>
-                    <input type="text" id="teacherDepartmentInput" placeholder="e.g., Mathematics">
-                </div>
-                <div class="form-row">
-                    <label>Email</label>
-                    <input type="email" id="teacherEmailInput" placeholder="e.g., name@shallomhigh.edu">
-                </div>
-                <div class="form-row">
-                    <label>Phone</label>
-                    <input type="text" id="teacherPhoneInput" placeholder="e.g., 0771234567">
-                </div>
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-primary">Save Teacher</button>
-                    <button type="button" class="btn btn-secondary" onclick="closeTeacherModal()">Cancel</button>
-                </div>
-            </form>
-        </div>
     </div>
 
     <!-- ===== PAYMENT MODAL ===== -->
