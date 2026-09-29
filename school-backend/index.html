@@ -626,7 +626,15 @@
                     <button class="btn btn-primary" onclick="openTeacherModal()">+ Add Teacher</button>
                 </div>
 
-                <!-- Teacher Stats Cards — each is clickable and opens the matching group's schedule detail -->
+                <!-- Teacher Stats Cards — matches the Students page layout: 4 even
+                     cards, no explanatory text underneath. Total/Active/Inactive
+                     are each clickable like before. The former two separate
+                     Morning/Afternoon cards are combined into one "Teaching
+                     Sessions" card with two small clickable counts side by side,
+                     so the grid fills evenly instead of leaving one card
+                     orphaned on its own row. The explanation of how the counts
+                     are calculated now lives in this card's tooltip instead of
+                     a permanent paragraph on the page. -->
                 <div class="stats-grid" id="teacherStatsGrid">
                     <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('total')" title="Click to view all teachers">
                         <div class="stat-icon tone-blue"><span data-lucide="graduation-cap"></span></div>
@@ -649,22 +657,25 @@
                             <p id="teacherStatInactive" class="stat-value">0</p>
                         </div>
                     </div>
-                    <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('morning')" title="Click to view morning session teachers">
-                        <div class="stat-icon tone-amber"><span data-lucide="sunrise"></span></div>
+                    <div class="stat-card" title="Calculated automatically from each teacher's timetable entries — nothing to set manually. A teacher teaching in both parts of the day counts toward both.">
+                        <div class="stat-icon tone-amber"><span data-lucide="clock"></span></div>
                         <div class="stat-info">
-                            <h3 class="stat-title">Morning Session</h3>
-                            <p id="teacherStatMorning" class="stat-value">0</p>
-                        </div>
-                    </div>
-                    <div class="stat-card" style="cursor:pointer;" onclick="showTeacherGroupDetail('afternoon')" title="Click to view afternoon session teachers">
-                        <div class="stat-icon tone-navy"><span data-lucide="sunset"></span></div>
-                        <div class="stat-info">
-                            <h3 class="stat-title">Afternoon Session</h3>
-                            <p id="teacherStatAfternoon" class="stat-value">0</p>
+                            <h3 class="stat-title">Teaching Sessions</h3>
+                            <div style="display:flex; gap:1.1rem; align-items:baseline; margin-top:0.15rem;">
+                                <span style="cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="showTeacherGroupDetail('morning')" title="Click to view morning session teachers">
+                                    <span data-lucide="sunrise" style="width:14px; height:14px;"></span>
+                                    <span class="stat-value" id="teacherStatMorning" style="font-size:1.15rem;">0</span>
+                                    <span style="font-size:0.72rem; color:var(--muted-text);">AM</span>
+                                </span>
+                                <span style="cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="showTeacherGroupDetail('afternoon')" title="Click to view afternoon session teachers">
+                                    <span data-lucide="sunset" style="width:14px; height:14px;"></span>
+                                    <span class="stat-value" id="teacherStatAfternoon" style="font-size:1.15rem;">0</span>
+                                    <span style="font-size:0.72rem; color:var(--muted-text);">PM</span>
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <p class="subtitle" style="margin: -0.5rem 0 1.2rem 0; font-size: 0.82rem;">Morning/Afternoon are calculated automatically from each teacher's timetable entries — nothing to set manually. A teacher teaching in both parts of the day counts toward both cards.</p>
 
                 <div class="filters">
                     <input type="text" id="teacherSearch" placeholder="Search teachers..." class="search-input">
