@@ -511,7 +511,7 @@ function copyTeacherLogin(teacherId) {
         refresh();
         $('credModal').setAttribute('aria-hidden', 'false');
         if (window.lucide) lucide.createIcons();
-        setTimeout(() => (current.askUsername ? $('credUser') : $('credPw')).focus(), 50);
+        setTimeout(() => { if (current) (current.askUsername ? $('credUser') : $('credPw')).focus(); }, 50);
     };
 })();
 
