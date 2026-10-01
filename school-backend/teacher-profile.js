@@ -1,4 +1,4 @@
-// ============================================================
+ // ============================================================
 // teacher-profile.js — Teacher Personal + Login profile
 // Load AFTER school.js:  <script src="teacher-profile.js"></script>
 // It extends school.js without editing it.
@@ -49,8 +49,21 @@
                 <option value="Inactive">Inactive</option></select></div>
             <div class="form-row"><label>Registration Date</label>
                 <input type="date" id="teacherRegDateInput"></div>
-            <p class="subtitle" style="font-size:0.78rem;">A login (username + temporary password) is created automatically for new teachers. Find it under the teacher's Login tab.</p>
+            <div id="teacherLoginFields">
+                <div class="form-row"><label>Login Username</label>
+                    <input type="text" id="teacherLoginUsernameInput" placeholder="Leave blank to auto-create from name" autocomplete="off"></div>
+                <div class="form-row"><label>Login Password (teacher's own choice)</label>
+                    <input type="text" id="teacherLoginPasswordInput" placeholder="Choose a password the teacher will remember" autocomplete="off">
+                    <p id="teacherPasswordHint" class="subtitle" style="margin:0.3rem 0 0; font-size:0.78rem;"></p></div>
+            </div>
         `);
+    const pw = document.getElementById('teacherLoginPasswordInput');
+    pw.addEventListener('input', () => {
+        const hint = document.getElementById('teacherPasswordHint');
+        const w = passwordWeakness(pw.value);
+        hint.textContent = !pw.value ? '' : (w ? '⚠ Weak password: ' + w : '✓ Good password');
+        hint.style.color = !pw.value ? '' : (w ? 'var(--warning-dark)' : 'var(--success-color)');
+    });
     }
     document.body.insertAdjacentHTML('beforeend', `
         <div id="teacherProfileModal" class="modal" aria-hidden="true">
@@ -70,6 +83,28 @@
 })();
 
 // ---------- 3. Helpers ----------
+// Returns a short reason if the password is weak, or '' if fine.
+// This only WARNS — the person may still keep their chosen password.
+function passwordWeakness(pw) {
+    if (!pw) return 'no password entered';
+    const common = ['password', '12345678', '123456789', 'qwerty', 'abc12345', 'teacher', 'school123', '11111111'];
+    if (pw.length < 6) return 'shorter than 6 characters';
+    if (common.includes(pw.toLowerCase())) return 'this is a very common password';
+    if (/^(.)\1+$/.test(pw)) return 'the same character repeated';
+    if (pw.length < 8) return 'try 8 or more characters';
+    if (!/[A-Za-z]/.test(pw) || !/[0-9]/.test(pw)) return 'mix letters and numbers to make it stronger';
+    return '';
+}
+
+// Asks the admin for a password, warns if weak, lets them keep it anyway.
+function askForPassword(message) {
+    const input = prompt(message);
+    if (input === null) return null;
+    if (!input.trim()) { showNotification('Password cannot be empty', 'warning'); return null; }
+    const weak = passwordWeakness(input);
+    if (weak && !confirm(`⚠ This password is weak (${weak}).\n\nPress OK to use it anyway, or Cancel to choose a different one.`)) return null;
+    return input;
+}
 function tpEsc(v) {
     return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -97,7 +132,7 @@ function findTeacherUser(teacher, users) {
 }
 
 // Creates the login in the same `users` list the app already uses
-function createTeacherLogin(teacherId) {
+function createTeacherLogin(teacherId, chosenUsername, chosenPassword) {
     const teachers = getData('teachers') || [];
     const idx = teachers.findIndex(t => t.id === teacherId);
     if (idx === -1) return null;
@@ -105,8 +140,8 @@ function createTeacherLogin(teacherId) {
     if (!Array.isArray(users)) users = [];
     if (findTeacherUser(teachers[idx], users)) return null;
 
-    const username = generateTeacherUsername(teachers[idx].name);
-    const password = generateTempPassword();
+    const username = (chosenUsername || '').trim() || generateTeacherUsername(teachers[idx].name);
+    const password = chosenPassword || generateTempPassword();
     users.push({ id: 'U' + Date.now(), username, password, role: 'teacher', name: teachers[idx].name, teacherId });
     saveData('users', users);
     teachers[idx].username = username;
@@ -127,6 +162,8 @@ window.openTeacherModal = function (editId = null, returnToClassModal = false) {
     document.getElementById('teacherModalTitle').textContent = editId ? 'Edit Teacher' : 'Add Teacher';
     document.getElementById('teacherStatusSelect').value = 'Active';
     document.getElementById('teacherRegDateInput').value = new Date().toISOString().split('T')[0];
+    document.getElementById('teacherLoginFields').style.display = editId ? 'none' : 'block';
+    document.getElementById('teacherPasswordHint').textContent = '';
 
     if (editId) {
         const t = (getData('teachers') || []).find(x => x.id === editId);
@@ -166,6 +203,18 @@ document.addEventListener('submit', function (e) {
     };
     if (!name) return showNotification('Teacher name is required', 'warning');
 
+    let loginUser = '', loginPass = '';
+    if (!editId) {
+        loginUser = document.getElementById('teacherLoginUsernameInput').value.trim();
+        loginPass = document.getElementById('teacherLoginPasswordInput').value;
+        if (!loginPass) return showNotification('Please choose a login password for the teacher', 'warning');
+        if ((getData('users') || []).some(u => u.username === loginUser && loginUser)) {
+            return showNotification('That username is already taken', 'error');
+        }
+        const weak = passwordWeakness(loginPass);
+        if (weak && !confirm(`⚠ This password is weak (${weak}).\n\nPress OK to use it anyway, or Cancel to choose a different one.`)) return;
+    }
+
     let teachers = getData('teachers') || [];
     if (!Array.isArray(teachers)) teachers = [];
     let savedTeacher;
@@ -184,10 +233,10 @@ document.addEventListener('submit', function (e) {
         savedTeacher = { id: nextId, ...fields };
         teachers.push(savedTeacher);
         if (!saveData('teachers', teachers)) return showNotification('Error saving teacher', 'error');
-        const creds = createTeacherLogin(savedTeacher.id);
+        const creds = createTeacherLogin(savedTeacher.id, loginUser, loginPass);
         loadTeachersFromStorage();
         showNotification(creds
-            ? `Teacher added. Login: ${creds.username} / ${creds.password} (also on their Login tab)`
+            ? `Teacher added. Username: ${creds.username}`
             : 'Teacher added successfully!', 'success');
         addActivity('👩‍🏫', `New teacher added: ${name}`);
     }
@@ -318,7 +367,6 @@ function renderTeacherLoginPanel(t) {
     if (!user.teacherId) { user.teacherId = t.id; saveData('users', users); }
 
     panel.innerHTML = `
-        <div class="info-box"><strong>For the headmaster:</strong> if a teacher forgets their login, read it here or reset it. The password stays hidden until you click Show / Hide.</div>
         <div class="profile-detail-grid" style="margin-bottom:1.1rem;">
             <div class="profile-detail-item"><div class="pd-label">Username</div><div class="pd-value">${tpEsc(user.username)}</div></div>
             <div class="profile-detail-item"><div class="pd-label">Password</div>
@@ -330,7 +378,7 @@ function renderTeacherLoginPanel(t) {
             <button class="btn btn-small btn-warning" onclick="resetTeacherPassword('${t.id}')">Reset password</button>
             <button class="btn btn-small btn-warning" onclick="changeTeacherUsername('${t.id}')">Change username</button>
         </div>
-        <p class="subtitle" style="margin-top:1rem; font-size:0.8rem;">Reset password generates a new temporary password and replaces the old one immediately.</p>`;
+`;
 }
 
 function toggleTeacherPasswordView() {
@@ -351,12 +399,20 @@ function copyTeacherLogin(teacherId) {
 }
 
 function createLoginFromProfile(teacherId) {
-    const creds = createTeacherLogin(teacherId);
     const t = (getData('teachers') || []).find(x => x.id === teacherId);
+    if (!t) return;
+    const uInput = prompt('Username for this teacher (leave blank to create one from the name):', '');
+    if (uInput === null) return;
+    if (uInput.trim() && (getData('users') || []).some(u => u.username === uInput.trim())) {
+        return showNotification('That username is already taken', 'error');
+    }
+    const pw = askForPassword('Choose a password for this teacher:');
+    if (pw === null) return;
+    const creds = createTeacherLogin(teacherId, uInput, pw);
     if (t) renderTeacherLoginPanel(t);
     loadTeachersFromStorage();
     if (creds) {
-        showNotification(`Login created: ${creds.username} / ${creds.password}`, 'success');
+        showNotification(`Login created: ${creds.username}`, 'success');
         addActivity('🔑', `Login created for ${t.name}`);
     }
 }
@@ -364,14 +420,15 @@ function createLoginFromProfile(teacherId) {
 function resetTeacherPassword(teacherId) {
     const t = (getData('teachers') || []).find(x => x.id === teacherId);
     if (!t) return;
-    if (!confirm(`Reset the password for ${t.name}? Their current password will stop working.`)) return;
-    const users = getData('users') || [];
+        const users = getData('users') || [];
     const user = findTeacherUser(t, users);
     if (!user) return showNotification('No login found for this teacher', 'error');
-    user.password = generateTempPassword();
+    const pw = askForPassword(`Enter the new password ${t.name} wants to use:`);
+    if (pw === null) return;
+    user.password = pw;
     if (saveData('users', users)) {
         renderTeacherLoginPanel(t);
-        showNotification(`New password for ${t.name}: ${user.password}`, 'success');
+        showNotification(`Password updated for ${t.name}`, 'success');
         addActivity('🔑', `Password reset for ${t.name}`);
     } else showNotification('Error resetting password', 'error');
 }
