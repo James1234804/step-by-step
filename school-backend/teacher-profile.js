@@ -211,8 +211,6 @@ document.addEventListener('submit', function (e) {
         if ((getData('users') || []).some(u => u.username === loginUser && loginUser)) {
             return showNotification('That username is already taken', 'error');
         }
-        const weak = passwordWeakness(loginPass);
-        if (weak && !confirm(`⚠ This password is weak (${weak}).\n\nPress OK to use it anyway, or Cancel to choose a different one.`)) return;
     }
 
     let teachers = getData('teachers') || [];
@@ -398,39 +396,166 @@ function copyTeacherLogin(teacherId) {
     else prompt('Copy this login:', text);
 }
 
+// ---------- Credential popup (create password / create login / change username) ----------
+(function () {
+    document.head.insertAdjacentHTML('beforeend', `<style>
+        #credModal .modal-content { max-width: 440px; padding: 1.75rem; }
+        .cred-head { text-align: center; margin-bottom: 1.25rem; }
+        .cred-icon { width: 52px; height: 52px; border-radius: 14px; margin: 0 auto 0.8rem; display: flex; align-items: center; justify-content: center; background: var(--primary-tint-strong); color: var(--primary-color); }
+        .cred-icon svg { width: 24px; height: 24px; stroke-width: 2px; }
+        .cred-head h3 { font-size: 1.2rem; margin-bottom: 0.3rem; }
+        .cred-head p { color: var(--muted-text); font-size: 0.88rem; margin: 0; }
+        .cred-pw { position: relative; }
+        .cred-pw input { padding-right: 2.8rem; }
+        .cred-eye { position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--muted-text); padding: 0.4rem; display: flex; }
+        .cred-eye svg { width: 18px; height: 18px; }
+        .cred-meter { height: 6px; background: var(--light-bg); border-radius: 6px; margin-top: 0.55rem; overflow: hidden; }
+        .cred-meter div { height: 100%; width: 0; border-radius: 6px; transition: width 0.25s ease, background 0.25s ease; }
+        .cred-note { font-size: 0.8rem; margin: 0.4rem 0 0; min-height: 1.1rem; }
+        .cred-error { color: var(--danger-color); font-size: 0.85rem; text-align: center; margin: 0.5rem 0 0; min-height: 1.1rem; }
+    </style>`);
+    document.body.insertAdjacentHTML('beforeend', `
+    <div id="credModal" class="modal" aria-hidden="true">
+        <div class="modal-content">
+            <div class="cred-head">
+                <div class="cred-icon"><span data-lucide="key-round"></span></div>
+                <h3 id="credTitle">Create new password</h3>
+                <p id="credSub"></p>
+            </div>
+            <div class="form-row" id="credUserRow">
+                <label id="credUserLabel">Username</label>
+                <input type="text" id="credUser" autocomplete="off">
+            </div>
+            <div id="credPwWrap">
+                <div class="form-row">
+                    <label>New password</label>
+                    <div class="cred-pw">
+                        <input type="password" id="credPw" autocomplete="new-password" placeholder="Choose a password you will remember">
+                        <button type="button" class="cred-eye" id="credEye" title="Show / hide"><span data-lucide="eye"></span></button>
+                    </div>
+                    <div class="cred-meter"><div id="credBar"></div></div>
+                    <p class="cred-note" id="credHint"></p>
+                </div>
+                <div class="form-row">
+                    <label>Confirm password</label>
+                    <input type="password" id="credPw2" autocomplete="new-password" placeholder="Type it again">
+                    <p class="cred-note" id="credMatch"></p>
+                </div>
+            </div>
+            <p class="cred-error" id="credError"></p>
+            <div class="form-actions">
+                <button type="button" class="btn btn-primary" id="credSave">Save</button>
+                <button type="button" class="btn btn-secondary" id="credCancel">Cancel</button>
+            </div>
+        </div>
+    </div>`);
+
+    const $ = id => document.getElementById(id);
+    let current = null;
+
+    function strengthLevel(pw) {
+        if (!pw) return 0;
+        if (passwordWeakness(pw)) return 1;
+        return (pw.length >= 10 && /[A-Z]/.test(pw) && /[a-z]/.test(pw) && /[0-9]/.test(pw)) ? 3 : 2;
+    }
+    function refresh() {
+        const pw = $('credPw').value, pw2 = $('credPw2').value;
+        const lvl = strengthLevel(pw);
+        const bar = $('credBar'), hint = $('credHint');
+        bar.style.width = ['0%', '33%', '66%', '100%'][lvl];
+        bar.style.background = ['transparent', 'var(--danger-color)', 'var(--warning-color)', 'var(--success-color)'][lvl];
+        const weak = passwordWeakness(pw);
+        hint.textContent = !pw ? '' : (weak ? '⚠ Weak password: ' + weak + '. You can still use it.' : (lvl === 3 ? '✓ Strong password' : '✓ Good password'));
+        hint.style.color = !pw ? '' : (weak ? 'var(--warning-dark)' : 'var(--success-color)');
+        const m = $('credMatch');
+        m.textContent = !pw2 ? '' : (pw === pw2 ? '✓ Passwords match' : 'Passwords do not match');
+        m.style.color = !pw2 ? '' : (pw === pw2 ? 'var(--success-color)' : 'var(--danger-color)');
+        $('credError').textContent = '';
+    }
+    $('credPw').addEventListener('input', refresh);
+    $('credPw2').addEventListener('input', refresh);
+    $('credEye').addEventListener('click', () => {
+        const show = $('credPw').type === 'password';
+        $('credPw').type = show ? 'text' : 'password';
+        $('credPw2').type = show ? 'text' : 'password';
+    });
+    $('credCancel').addEventListener('click', closeCredModal);
+    $('credModal').addEventListener('click', e => { if (e.target === $('credModal')) closeCredModal(); });
+    $('credSave').addEventListener('click', () => {
+        if (!current) return;
+        const username = $('credUser').value.trim();
+        const pw = $('credPw').value, pw2 = $('credPw2').value;
+        const err = $('credError');
+        if (current.askUsername && current.usernameRequired && !username) { err.textContent = 'Please enter a username.'; return; }
+        if (current.askPassword) {
+            if (!pw) { err.textContent = 'Please enter a password.'; return; }
+            if (pw !== pw2) { err.textContent = 'The two passwords do not match.'; return; }
+        }
+        const result = current.onSave({ username, password: pw });
+        if (result === true) closeCredModal();
+        else if (typeof result === 'string') err.textContent = result;
+    });
+    window.closeCredModal = function () { $('credModal').setAttribute('aria-hidden', 'true'); current = null; };
+    window.openCredModal = function (opts) {
+        current = Object.assign({ askUsername: false, askPassword: true, usernameRequired: false, saveLabel: 'Save' }, opts);
+        $('credTitle').textContent = current.title;
+        $('credSub').textContent = current.subtitle || '';
+        $('credUserRow').style.display = current.askUsername ? 'block' : 'none';
+        $('credUserLabel').textContent = current.userLabel || 'Username';
+        $('credUser').value = current.username || '';
+        $('credUser').placeholder = current.userPlaceholder || '';
+        $('credPwWrap').style.display = current.askPassword ? 'block' : 'none';
+        $('credPw').value = ''; $('credPw2').value = '';
+        $('credPw').type = 'password'; $('credPw2').type = 'password';
+        $('credSave').textContent = current.saveLabel;
+        refresh();
+        $('credModal').setAttribute('aria-hidden', 'false');
+        if (window.lucide) lucide.createIcons();
+        setTimeout(() => (current.askUsername ? $('credUser') : $('credPw')).focus(), 50);
+    };
+})();
+
 function createLoginFromProfile(teacherId) {
     const t = (getData('teachers') || []).find(x => x.id === teacherId);
     if (!t) return;
-    const uInput = prompt('Username for this teacher (leave blank to create one from the name):', '');
-    if (uInput === null) return;
-    if (uInput.trim() && (getData('users') || []).some(u => u.username === uInput.trim())) {
-        return showNotification('That username is already taken', 'error');
-    }
-    const pw = askForPassword('Choose a password for this teacher:');
-    if (pw === null) return;
-    const creds = createTeacherLogin(teacherId, uInput, pw);
-    if (t) renderTeacherLoginPanel(t);
-    loadTeachersFromStorage();
-    if (creds) {
-        showNotification(`Login created: ${creds.username}`, 'success');
-        addActivity('🔑', `Login created for ${t.name}`);
-    }
+    openCredModal({
+        title: 'Create login',
+        subtitle: `Set up the login for ${t.name}.`,
+        askUsername: true,
+        userPlaceholder: 'Leave blank to create one from the name',
+        saveLabel: 'Create login',
+        onSave: ({ username, password }) => {
+            if (username && (getData('users') || []).some(u => u.username === username)) return 'That username is already taken.';
+            const creds = createTeacherLogin(teacherId, username, password);
+            if (!creds) return 'This teacher already has a login.';
+            renderTeacherLoginPanel((getData('teachers') || []).find(x => x.id === teacherId));
+            loadTeachersFromStorage();
+            showNotification('Login created for ' + t.name, 'success');
+            addActivity('🔑', 'Login created for ' + t.name);
+            return true;
+        }
+    });
 }
 
 function resetTeacherPassword(teacherId) {
     const t = (getData('teachers') || []).find(x => x.id === teacherId);
     if (!t) return;
-        const users = getData('users') || [];
-    const user = findTeacherUser(t, users);
-    if (!user) return showNotification('No login found for this teacher', 'error');
-    const pw = askForPassword(`Enter the new password ${t.name} wants to use:`);
-    if (pw === null) return;
-    user.password = pw;
-    if (saveData('users', users)) {
-        renderTeacherLoginPanel(t);
-        showNotification(`Password updated for ${t.name}`, 'success');
-        addActivity('🔑', `Password reset for ${t.name}`);
-    } else showNotification('Error resetting password', 'error');
+    openCredModal({
+        title: 'Create new password',
+        subtitle: `Choose a new password for ${t.name}.`,
+        saveLabel: 'Save password',
+        onSave: ({ password }) => {
+            const users = getData('users') || [];
+            const user = findTeacherUser(t, users);
+            if (!user) return 'No login found for this teacher.';
+            user.password = password;
+            if (!saveData('users', users)) return 'Could not save the password. Please try again.';
+            renderTeacherLoginPanel(t);
+            showNotification('Password updated for ' + t.name, 'success');
+            addActivity('🔑', 'Password changed for ' + t.name);
+            return true;
+        }
+    });
 }
 
 function changeTeacherUsername(teacherId) {
@@ -440,22 +565,25 @@ function changeTeacherUsername(teacherId) {
     const users = getData('users') || [];
     const user = findTeacherUser(t, users);
     if (!user) return showNotification('No login found for this teacher', 'error');
-
-    const input = prompt('New username:', user.username);
-    if (input === null) return;
-    const newName = input.trim();
-    if (!newName) return showNotification('Username cannot be empty', 'warning');
-    if (newName === user.username) return;
-    if (users.some(u => u.username === newName && u !== user)) return showNotification('That username is already taken', 'error');
-
-    user.username = newName;
-    t.username = newName;
-    if (saveData('users', users) && saveData('teachers', teachers)) {
-        renderTeacherLoginPanel(t);
-        loadTeachersFromStorage();
-        showNotification('Username updated', 'success');
-        addActivity('🔑', `Username changed for ${t.name}`);
-    } else showNotification('Error updating username', 'error');
+    openCredModal({
+        title: 'Change username',
+        subtitle: `Enter the new username for ${t.name}.`,
+        askUsername: true, askPassword: false, usernameRequired: true,
+        userLabel: 'New username', username: user.username,
+        saveLabel: 'Save username',
+        onSave: ({ username }) => {
+            if (username === user.username) return true;
+            if (users.some(u => u.username === username && u !== user)) return 'That username is already taken.';
+            user.username = username;
+            t.username = username;
+            if (!(saveData('users', users) && saveData('teachers', teachers))) return 'Could not save. Please try again.';
+            renderTeacherLoginPanel(t);
+            loadTeachersFromStorage();
+            showNotification('Username updated', 'success');
+            addActivity('🔑', 'Username changed for ' + t.name);
+            return true;
+        }
+    });
 }
 
 document.addEventListener('click', function (e) {
