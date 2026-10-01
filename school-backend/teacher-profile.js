@@ -479,8 +479,8 @@ function copyTeacherLogin(teacherId) {
         $('credPw').type = show ? 'text' : 'password';
         $('credPw2').type = show ? 'text' : 'password';
     });
-    $('credCancel').addEventListener('click', closeCredModal);
-    $('credModal').addEventListener('click', e => { if (e.target === $('credModal')) closeCredModal(); });
+    $('credCancel').addEventListener('click', () => window.closeCredModal());
+    $('credModal').addEventListener('click', e => { if (e.target === $('credModal')) window.closeCredModal(); });
     $('credSave').addEventListener('click', () => {
         if (!current) return;
         const username = $('credUser').value.trim();
