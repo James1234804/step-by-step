@@ -70,7 +70,7 @@
         .tp-att-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
         .tp-att-toolbar label { font-size: 0.78rem; color: var(--muted-text); text-transform: uppercase; letter-spacing: 0.04em; margin-right: 0.5rem; }
         .tp-att-toolbar select { padding: 0.45rem 0.7rem; border-radius: 8px; border: 1px solid var(--border-color, #e2e8f0); background: #fff; font: inherit; }
-        .tp-att-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.85rem; margin-bottom: 0.6rem; }
+        .tp-att-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.85rem; margin-bottom: 1.1rem; }
         .tp-att-card { border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; padding: 0.9rem 1rem; background: #fff; }
         .tp-att-card .tp-att-label { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-text); margin-bottom: 0.35rem; }
         .tp-att-card .tp-att-value { font-size: 1.7rem; font-weight: 700; line-height: 1.1; }
@@ -502,8 +502,8 @@ function renderTeacherAttendancePanel(t, year) {
     // A late teacher still came to school, so Late counts toward attendance.
     const rate = total ? Math.round(((present + late) / total) * 100) : 0;
 
-    const card = (cls, label, value) =>
-        `<div class="tp-att-card ${cls}"><div class="tp-att-label">${label}</div><div class="tp-att-value">${value}</div></div>`;
+    const card = (cls, label, value, tip) =>
+        `<div class="tp-att-card ${cls}" title="${tip}"><div class="tp-att-label">${label}</div><div class="tp-att-value">${value}</div></div>`;
     const label = { present: 'Present', absent: 'Absent', late: 'Late' };
 
     const rows = records.map(r => `
@@ -522,12 +522,11 @@ function renderTeacherAttendancePanel(t, year) {
                 </select></div>
         </div>
         <div class="tp-att-cards">
-            ${card('present', 'Present', present)}
-            ${card('absent', 'Absent', absent)}
-            ${card('late', 'Late', late)}
-            ${card('rate', 'Attendance rate', rate + '%')}
+            ${card('present', 'Present', present, 'Checked in by ' + TEACHER_CUTOFF)}
+            ${card('absent', 'Absent', absent, 'No check-in on a school day')}
+            ${card('late', 'Late', late, 'Checked in after ' + TEACHER_CUTOFF)}
+            ${card('rate', 'Attendance rate', rate + '%', 'Present and late days out of all recorded days')}
         </div>
-        <p class="tp-att-note">Check in by ${TEACHER_CUTOFF} = Present, after = Late, no check-in on a school day = Absent. Rate = (present + late) ÷ ${total} recorded day${total === 1 ? '' : 's'}. Today counts once it has ended.</p>
         <div class="tp-att-log">
             ${total ? `<table>
                 <thead><tr><th>Date</th><th>Status</th><th>Time in</th><th>Note</th></tr></thead>
