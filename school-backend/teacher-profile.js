@@ -59,21 +59,7 @@
                 <input type="text" id="teacherEmergencyNameInput" placeholder="e.g. spouse, parent or relative"></div>
             <div class="form-row"><label>Emergency Contact Phone</label>
                 <input type="tel" id="teacherEmergencyPhoneInput" placeholder="e.g. 0771234567"></div>
-            <div id="teacherLoginFields">
-                <div class="form-row"><label>Login Username</label>
-                    <input type="text" id="teacherLoginUsernameInput" placeholder="Leave blank to auto-create from name" autocomplete="off"></div>
-                <div class="form-row"><label>Login Password (teacher's own choice)</label>
-                    <input type="text" id="teacherLoginPasswordInput" placeholder="Choose a password the teacher will remember" autocomplete="off">
-                    <p id="teacherPasswordHint" class="subtitle" style="margin:0.3rem 0 0; font-size:0.78rem;"></p></div>
-            </div>
         `);
-        const pw = document.getElementById('teacherLoginPasswordInput');
-        pw.addEventListener('input', () => {
-            const hint = document.getElementById('teacherPasswordHint');
-            const w = passwordWeakness(pw.value);
-            hint.textContent = !pw.value ? '' : (w ? '⚠ Weak password: ' + w : '✓ Good password');
-            hint.style.color = !pw.value ? '' : (w ? 'var(--warning-dark)' : 'var(--success-color)');
-        });
     }
 
     document.head.insertAdjacentHTML('beforeend', `<style>
@@ -222,8 +208,6 @@ window.openTeacherModal = function (editId = null, returnToClassModal = false) {
     document.getElementById('teacherModalTitle').textContent = editId ? 'Edit Teacher' : 'Add Teacher';
     document.getElementById('teacherStatusSelect').value = 'Active';
     document.getElementById('teacherRegDateInput').value = new Date().toISOString().split('T')[0];
-    document.getElementById('teacherLoginFields').style.display = editId ? 'none' : 'block';
-    document.getElementById('teacherPasswordHint').textContent = '';
 
     if (editId) {
         const t = (getData('teachers') || []).find(x => x.id === editId);
@@ -267,16 +251,6 @@ document.addEventListener('submit', function (e) {
     };
     if (!name) return showNotification('Teacher name is required', 'warning');
 
-    let loginUser = '', loginPass = '';
-    if (!editId) {
-        loginUser = document.getElementById('teacherLoginUsernameInput').value.trim();
-        loginPass = document.getElementById('teacherLoginPasswordInput').value;
-        if (!loginPass) return showNotification('Please choose a login password for the teacher', 'warning');
-        if ((getData('users') || []).some(u => u.username === loginUser && loginUser)) {
-            return showNotification('That username is already taken', 'error');
-        }
-    }
-
     let teachers = getData('teachers') || [];
     if (!Array.isArray(teachers)) teachers = [];
     let savedTeacher;
@@ -295,11 +269,8 @@ document.addEventListener('submit', function (e) {
         savedTeacher = { id: nextId, ...fields };
         teachers.push(savedTeacher);
         if (!saveData('teachers', teachers)) return showNotification('Error saving teacher', 'error');
-        const creds = createTeacherLogin(savedTeacher.id, loginUser, loginPass);
         loadTeachersFromStorage();
-        showNotification(creds
-            ? `Teacher added. Username: ${creds.username}`
-            : 'Teacher added successfully!', 'success');
+        showNotification('Teacher added successfully!', 'success');
         addActivity('👩‍🏫', `New teacher added: ${name}`);
     }
 
@@ -425,9 +396,7 @@ function renderTeacherLoginPanel(t) {
     const user = findTeacherUser(t, users);
 
     if (!user) {
-        panel.innerHTML = `
-            <div class="info-box">This teacher has no login yet. Create one and a username and temporary password will be generated.</div>
-            <button class="btn btn-primary" onclick="createLoginFromProfile('${t.id}')">Create Login</button>`;
+        panel.innerHTML = `<div class="info-box">No login has been created for this teacher yet.</div>`;
         return;
     }
     if (!user.teacherId) { user.teacherId = t.id; saveData('users', users); }
@@ -695,28 +664,6 @@ function changeTeacherAttendanceYear(teacherId, year) {
         setTimeout(() => { if (current) (current.askUsername ? $('credUser') : $('credPw')).focus(); }, 50);
     };
 })();
-
-function createLoginFromProfile(teacherId) {
-    const t = (getData('teachers') || []).find(x => x.id === teacherId);
-    if (!t) return;
-    openCredModal({
-        title: 'Create login',
-        subtitle: `Set up the login for ${t.name}.`,
-        askUsername: true,
-        userPlaceholder: 'Leave blank to create one from the name',
-        saveLabel: 'Create login',
-        onSave: ({ username, password }) => {
-            if (username && (getData('users') || []).some(u => u.username === username)) return 'That username is already taken.';
-            const creds = createTeacherLogin(teacherId, username, password);
-            if (!creds) return 'This teacher already has a login.';
-            renderTeacherLoginPanel((getData('teachers') || []).find(x => x.id === teacherId));
-            loadTeachersFromStorage();
-            showNotification('Login created for ' + t.name, 'success');
-            addActivity('🔑', 'Login created for ' + t.name);
-            return true;
-        }
-    });
-}
 
 function resetTeacherPassword(teacherId) {
     const t = (getData('teachers') || []).find(x => x.id === teacherId);
