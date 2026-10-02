@@ -43,17 +43,31 @@ function renderClasses() {
     const container = document.getElementById('classesContainer');
     if (!container) return;
     container.innerHTML = '';
+    renderClassOverview();
 
     const classes = window._classes || [];
     const filterValue = document.getElementById('formLevelFilter')?.value || '';
+    const quickFilter = window._classQuickFilter || '';
 
     let displayClasses = classes;
     if (filterValue) {
         displayClasses = classes.filter(cls => cls.formLevel === filterValue);
     }
 
+    if (quickFilter) {
+        const studentList = getData('students') || [];
+        displayClasses = displayClasses.filter(cls => quickFilter === 'noTeacher'
+            ? resolveClassTeacherName(cls) === '—'
+            : !studentList.some(s => s.class === cls.name));
+        container.insertAdjacentHTML('beforeend',
+            `<div class="cm-chip">Showing: ${quickFilter === 'noTeacher' ? 'Classes without a teacher' : 'Empty classes'}
+                <button type="button" onclick="setClassQuickFilter('')">Clear</button></div>`);
+    }
+
     if (displayClasses.length === 0) {
-        container.innerHTML = '<p>No classes yet. Click "Add New Class" to create one.</p>';
+        container.insertAdjacentHTML('beforeend', quickFilter
+            ? '<p>No classes match this filter.</p>'
+            : '<p>No classes yet. Click "Add New Class" to create one.</p>');
         return;
     }
 
@@ -432,4 +446,192 @@ function openClassDetailsModal(classId) {
 function closeClassDetailsModal() {
     const modal = document.getElementById('classDetailsModal');
     if (modal) modal.setAttribute('aria-hidden', 'true');
+}
+
+// ---------- 6. Overview: statistics cards and quick actions ----------
+// Four statistic cards on top (read-only) with clickable mini cards below them
+// for managing classes and the academic year. Built once, refreshed whenever
+// the class list is drawn.
+
+function getClassOverviewStats() {
+    const classes = Array.isArray(window._classes) ? window._classes : [];
+    const rawStudents = getData('students');
+    const students = Array.isArray(rawStudents) ? rawStudents : [];
+    const classNames = new Set(classes.map(c => c.name));
+    const inClasses = students.filter(s => classNames.has(s.class));
+    const activeInClasses = inClasses.filter(s => (s.status || 'Active') === 'Active').length;
+
+    const activeYear = parseInt(localStorage.getItem('lastProcessedAcademicYear'), 10) || new Date().getFullYear();
+    const startYears = students
+        .map(s => (s.dateAdded ? new Date(s.dateAdded).getFullYear() : NaN))
+        .filter(y => !isNaN(y) && y <= activeYear);
+    const firstYear = startYears.length ? Math.min(...startYears) : activeYear;
+
+    return {
+        totalClasses: classes.length,
+        studentsInClasses: inClasses.length,
+        activeInClasses,
+        activeYear,
+        firstYear,
+        yearsOnRecord: activeYear - firstYear + 1,
+        noTeacher: classes.filter(c => resolveClassTeacherName(c) === '—').length,
+        empty: classes.filter(c => !students.some(s => s.class === c.name)).length
+    };
+}
+
+function injectClassOverviewStyles() {
+    if (document.getElementById('cmStyles')) return;
+    document.head.insertAdjacentHTML('beforeend', `<style id="cmStyles">
+        .cm-overview { margin-bottom: 1.25rem; }
+        .cm-stats, .cm-minis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+        .cm-stats { margin-bottom: 1rem; }
+        .cm-minis { gap: 0.75rem; }
+        .cm-stat { display: flex; align-items: center; gap: 0.9rem; background: #fff; border: 1px solid var(--border-color, #e2e8f0); border-radius: 16px; padding: 1.1rem 1.25rem; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+        .cm-stat-icon { flex: none; width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; }
+        .cm-stat-icon svg { width: 24px; height: 24px; }
+        .cm-stat-icon.orange { background: #ffedd5; color: #ea580c; }
+        .cm-stat-icon.green { background: #dcfce7; color: #16a34a; }
+        .cm-stat-icon.slate { background: #e2e8f0; color: #475569; }
+        .cm-stat-icon.amber { background: #fef3c7; color: #b45309; }
+        .cm-stat-label { font-size: 0.85rem; color: var(--muted-text, #64748b); }
+        .cm-stat-value { font-size: 1.75rem; font-weight: 700; line-height: 1.15; }
+        .cm-stat-sub { font-size: 0.78rem; color: var(--muted-text, #64748b); margin-top: 0.1rem; }
+        .cm-mini { display: flex; align-items: center; gap: 0.75rem; text-align: left; background: #fff; border: 1px solid var(--border-color, #e2e8f0); border-radius: 14px; padding: 0.8rem 1rem; cursor: pointer; font: inherit; color: inherit; transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
+        .cm-mini:hover { border-color: var(--primary-color, #ea580c); box-shadow: 0 4px 12px rgba(234, 88, 12, 0.12); transform: translateY(-1px); }
+        .cm-mini.active { border-color: var(--primary-color, #ea580c); background: #fff7ed; }
+        .cm-mini-icon { flex: none; width: 38px; height: 38px; border-radius: 10px; background: #fff7ed; color: #ea580c; display: flex; align-items: center; justify-content: center; }
+        .cm-mini-icon svg { width: 18px; height: 18px; }
+        .cm-mini-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        .cm-mini-title { font-weight: 700; font-size: 0.92rem; }
+        .cm-mini-sub { font-size: 0.78rem; color: var(--muted-text, #64748b); }
+        .cm-mini-go { flex: none; color: #94a3b8; display: flex; }
+        .cm-mini-go svg { width: 18px; height: 18px; }
+        .cm-chip { display: inline-flex; align-items: center; gap: 0.6rem; background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; border-radius: 999px; padding: 0.3rem 0.5rem 0.3rem 0.9rem; font-size: 0.85rem; font-weight: 600; margin-bottom: 1rem; }
+        .cm-chip button { border: none; background: #fff; border-radius: 999px; padding: 0.15rem 0.7rem; font: inherit; font-size: 0.78rem; font-weight: 700; cursor: pointer; color: #c2410c; }
+        .cm-ay-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.1rem; }
+        .cm-ay-box { border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; padding: 0.8rem 1rem; background: var(--light-bg, #f8fafc); }
+        .cm-ay-box .cm-stat-value { font-size: 1.4rem; }
+        @media (max-width: 1100px) { .cm-stats, .cm-minis { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 560px) { .cm-stats, .cm-minis, .cm-ay-summary { grid-template-columns: 1fr; } }
+    </style>`);
+}
+
+// Creates the overview holder once, above the page's existing toolbar
+function ensureClassOverview() {
+    let overview = document.getElementById('classOverview');
+    if (overview) return overview;
+    const container = document.getElementById('classesContainer');
+    if (!container) return null;
+
+    injectClassOverviewStyles();
+    overview = document.createElement('div');
+    overview.id = 'classOverview';
+    overview.className = 'cm-overview';
+
+    let anchor = container;
+    const filter = document.getElementById('formLevelFilter');
+    if (filter) {
+        let el = filter;
+        while (el.parentElement && el.parentElement !== container.parentElement) el = el.parentElement;
+        if (el.parentElement === container.parentElement) anchor = el;
+    }
+    anchor.parentNode.insertBefore(overview, anchor);
+    return overview;
+}
+
+function renderClassOverview() {
+    const overview = ensureClassOverview();
+    if (!overview) return;
+    const s = getClassOverviewStats();
+    const quick = window._classQuickFilter || '';
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 'es'}`;
+
+    const stat = (icon, tone, label, value, sub) => `
+        <div class="cm-stat">
+            <div class="cm-stat-icon ${tone}"><span data-lucide="${icon}"></span></div>
+            <div><div class="cm-stat-label">${label}</div><div class="cm-stat-value">${value}</div>
+                ${sub ? `<div class="cm-stat-sub">${sub}</div>` : ''}</div>
+        </div>`;
+    const mini = (icon, title, sub, action, active) => `
+        <button type="button" class="cm-mini${active ? ' active' : ''}" onclick="${action}">
+            <span class="cm-mini-icon"><span data-lucide="${icon}"></span></span>
+            <span class="cm-mini-text"><span class="cm-mini-title">${title}</span><span class="cm-mini-sub">${sub}</span></span>
+            <span class="cm-mini-go"><span data-lucide="chevron-right"></span></span>
+        </button>`;
+
+    overview.innerHTML = `
+        <div class="cm-stats">
+            ${stat('layout-grid', 'orange', 'Total Classes', s.totalClasses.toLocaleString(), '')}
+            ${stat('users', 'green', 'Students in Classes', s.studentsInClasses.toLocaleString(), `${s.activeInClasses.toLocaleString()} active`)}
+            ${stat('calendar-range', 'slate', 'Academic Years', s.yearsOnRecord.toLocaleString(), `Since ${s.firstYear}`)}
+            ${stat('calendar-check', 'amber', 'Active Year', s.activeYear, 'Current academic year')}
+        </div>
+        <div class="cm-minis">
+            ${mini('plus', 'Add Class', 'Create a new class', 'openClassModal()', false)}
+            ${mini('user-x', 'No Class Teacher', s.noTeacher ? plural(s.noTeacher, 'class') : 'All classes have a teacher', "setClassQuickFilter('noTeacher')", quick === 'noTeacher')}
+            ${mini('inbox', 'Empty Classes', s.empty ? plural(s.empty, 'class') : 'No empty classes', "setClassQuickFilter('empty')", quick === 'empty')}
+            ${mini('calendar-days', 'Academic Year', `${s.activeYear} · Active`, 'openAcademicYearPanel()', false)}
+        </div>`;
+    if (window.lucide) lucide.createIcons();
+}
+
+// Clicking the same mini card twice switches the filter off again
+function setClassQuickFilter(filter) {
+    window._classQuickFilter = window._classQuickFilter === filter ? '' : filter;
+    renderClasses();
+}
+
+// ---------- 7. Academic year panel ----------
+
+function ensureAcademicYearModal() {
+    if (document.getElementById('cmAcademicModal')) return;
+    injectClassOverviewStyles();
+    document.body.insertAdjacentHTML('beforeend', `
+        <div id="cmAcademicModal" class="modal" aria-hidden="true">
+            <div class="modal-content" style="max-width:560px;">
+                <div class="modal-header">
+                    <h3>Academic Year</h3>
+                    <button class="modal-close" onclick="closeAcademicYearPanel()">✕</button>
+                </div>
+                <div id="cmAcademicBody"></div>
+            </div>
+        </div>`);
+    const modal = document.getElementById('cmAcademicModal');
+    modal.addEventListener('click', e => { if (e.target === modal) closeAcademicYearPanel(); });
+}
+
+function openAcademicYearPanel() {
+    ensureAcademicYearModal();
+    const s = getClassOverviewStats();
+    const classes = Array.isArray(window._classes) ? window._classes : [];
+    const rawStudents = getData('students');
+    const students = Array.isArray(rawStudents) ? rawStudents : [];
+    const lastRollover = parseInt(localStorage.getItem('lastProcessedAcademicYear'), 10) || s.activeYear;
+    const graduates = students.filter(st => st.status === 'Graduated').length;
+
+    const rows = [1, 2, 3, 4, 5, 6].map(level => {
+        const classCount = classes.filter(c => String(c.formLevel) === String(level)).length;
+        const studentCount = students.filter(st => {
+            const parsed = typeof parseClassName === 'function' ? parseClassName(st.class) : null;
+            return parsed && parsed.level === level && (st.status || 'Active') === 'Active';
+        }).length;
+        return `<tr><td>Form ${level}</td><td>${classCount}</td><td>${studentCount}</td></tr>`;
+    }).join('');
+
+    const box = (label, value) => `<div class="cm-ay-box"><div class="cm-stat-label">${label}</div><div class="cm-stat-value">${value}</div></div>`;
+    document.getElementById('cmAcademicBody').innerHTML = `
+        <div class="cm-ay-summary">
+            ${box('Active Year', s.activeYear)}
+            ${box('Last Rollover', lastRollover)}
+            ${box('Graduates', graduates)}
+        </div>
+        <table class="table" style="margin:0;">
+            <thead><tr><th>Form</th><th>Classes</th><th>Active Students</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+    document.getElementById('cmAcademicModal').setAttribute('aria-hidden', 'false');
+}
+
+function closeAcademicYearPanel() {
+    document.getElementById('cmAcademicModal')?.setAttribute('aria-hidden', 'true');
 }
