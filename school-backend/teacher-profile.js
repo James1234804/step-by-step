@@ -1,5 +1,5 @@
  // ============================================================
-// teacher-profile.js — Teacher Personal + Login profile
+// teacher-profile.js — Teacher Personal + Login + Attendance profile
 // Load AFTER school.js:  <script src="teacher-profile.js"></script>
 // It extends school.js without editing it.
 // ============================================================
@@ -57,14 +57,40 @@
                     <p id="teacherPasswordHint" class="subtitle" style="margin:0.3rem 0 0; font-size:0.78rem;"></p></div>
             </div>
         `);
-    const pw = document.getElementById('teacherLoginPasswordInput');
-    pw.addEventListener('input', () => {
-        const hint = document.getElementById('teacherPasswordHint');
-        const w = passwordWeakness(pw.value);
-        hint.textContent = !pw.value ? '' : (w ? '⚠ Weak password: ' + w : '✓ Good password');
-        hint.style.color = !pw.value ? '' : (w ? 'var(--warning-dark)' : 'var(--success-color)');
-    });
+        const pw = document.getElementById('teacherLoginPasswordInput');
+        pw.addEventListener('input', () => {
+            const hint = document.getElementById('teacherPasswordHint');
+            const w = passwordWeakness(pw.value);
+            hint.textContent = !pw.value ? '' : (w ? '⚠ Weak password: ' + w : '✓ Good password');
+            hint.style.color = !pw.value ? '' : (w ? 'var(--warning-dark)' : 'var(--success-color)');
+        });
     }
+
+    document.head.insertAdjacentHTML('beforeend', `<style>
+        .tp-att-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+        .tp-att-toolbar label { font-size: 0.78rem; color: var(--muted-text); text-transform: uppercase; letter-spacing: 0.04em; margin-right: 0.5rem; }
+        .tp-att-toolbar select { padding: 0.45rem 0.7rem; border-radius: 8px; border: 1px solid var(--border-color, #e2e8f0); background: #fff; font: inherit; }
+        .tp-att-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.85rem; margin-bottom: 0.6rem; }
+        .tp-att-card { border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; padding: 0.9rem 1rem; background: #fff; }
+        .tp-att-card .tp-att-label { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-text); margin-bottom: 0.35rem; }
+        .tp-att-card .tp-att-value { font-size: 1.7rem; font-weight: 700; line-height: 1.1; }
+        .tp-att-card.present .tp-att-value { color: var(--success-color, #16a34a); }
+        .tp-att-card.absent .tp-att-value { color: var(--danger-color, #dc2626); }
+        .tp-att-card.late .tp-att-value { color: var(--warning-dark, #b45309); }
+        .tp-att-card.rate .tp-att-value { color: var(--primary-color, #ea580c); }
+        .tp-att-note { font-size: 0.78rem; color: var(--muted-text); margin: 0 0 1.1rem; }
+        .tp-att-log { max-height: 320px; overflow-y: auto; border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; }
+        .tp-att-log table { width: 100%; border-collapse: collapse; }
+        .tp-att-log th { position: sticky; top: 0; background: var(--light-bg, #f8fafc); text-align: left; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-text); padding: 0.6rem 0.9rem; }
+        .tp-att-log td { padding: 0.6rem 0.9rem; border-top: 1px solid var(--border-color, #e2e8f0); font-size: 0.9rem; }
+        .tp-att-badge { display: inline-block; padding: 0.15rem 0.65rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+        .tp-att-badge.present { background: #dcfce7; color: #15803d; }
+        .tp-att-badge.absent { background: #fee2e2; color: #b91c1c; }
+        .tp-att-badge.late { background: #fef3c7; color: #b45309; }
+        .tp-att-empty { text-align: center; color: var(--muted-text); padding: 2rem 1rem; }
+        @media (max-width: 640px) { .tp-att-cards { grid-template-columns: repeat(2, 1fr); } }
+    </style>`);
+
     document.body.insertAdjacentHTML('beforeend', `
         <div id="teacherProfileModal" class="modal" aria-hidden="true">
             <div class="modal-content profile-modal-content">
@@ -75,9 +101,11 @@
                 <div class="profile-tabs" style="margin-bottom:0.75rem;">
                     <button id="tpTab-personal" class="profile-tab active" onclick="showTeacherProfileTab('personal')">Personal</button>
                     <button id="tpTab-login" class="profile-tab" onclick="showTeacherProfileTab('login')">Login</button>
+                    <button id="tpTab-attendance" class="profile-tab" onclick="showTeacherProfileTab('attendance')">Attendance</button>
                 </div>
                 <div class="profile-panel" id="tpPanel-personal"></div>
                 <div class="profile-panel" id="tpPanel-login" style="display:none;"></div>
+                <div class="profile-panel" id="tpPanel-attendance" style="display:none;"></div>
             </div>
         </div>`);
 })();
@@ -302,13 +330,16 @@ window.deleteTeacherRecord = function (button, teacherId) {
     updateDashboardStats();
 };
 
-// ---------- 7. Profile modal: Personal + Login ----------
+// ---------- 7. Profile modal: Personal + Login + Attendance ----------
+const TEACHER_PROFILE_TABS = ['personal', 'login', 'attendance'];
+
 function openTeacherProfile(teacherId, tab = 'personal') {
     const t = (getData('teachers') || []).find(x => x.id === teacherId);
     if (!t) return showNotification('Teacher not found', 'error');
     document.getElementById('teacherProfileTitle').textContent = `${t.name} — ${t.id}`;
     renderTeacherPersonalPanel(t);
     renderTeacherLoginPanel(t);
+    renderTeacherAttendancePanel(t);
     showTeacherProfileTab(tab);
     document.getElementById('teacherProfileModal').setAttribute('aria-hidden', 'false');
 }
@@ -318,7 +349,7 @@ function closeTeacherProfile() {
 }
 
 function showTeacherProfileTab(tab) {
-    ['personal', 'login'].forEach(k => {
+    TEACHER_PROFILE_TABS.forEach(k => {
         document.getElementById('tpTab-' + k)?.classList.toggle('active', k === tab);
         const p = document.getElementById('tpPanel-' + k);
         if (p) p.style.display = k === tab ? 'block' : 'none';
@@ -394,6 +425,120 @@ function copyTeacherLogin(teacherId) {
     const text = `Username: ${user.username}\nPassword: ${user.password}`;
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => showNotification('Login copied', 'success'));
     else prompt('Copy this login:', text);
+}
+
+// ---------- 8. Attendance tab ----------
+// Teachers check themselves in from their own dashboard. Each check-in is saved as
+//   { id, teacherId, date: 'YYYY-MM-DD', timeIn: 'HH:MM' }   under getData('teacherAttendance').
+// The status is worked out here from the time:
+//   checked in at or before TEACHER_CUTOFF -> Present
+//   checked in after TEACHER_CUTOFF        -> Late (still counted as attended)
+//   weekday with no check-in               -> Absent (derived, never stored)
+const TEACHER_ATTENDANCE_KEY = 'teacherAttendance';
+const TEACHER_CUTOFF = '08:00';
+const TEACHER_HOLIDAYS = []; // school-closed weekdays to skip, e.g. ['2026-12-25']
+
+function tpParseDate(value) {
+    if (!value) return null;
+    const s = String(value);
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + 'T00:00:00') : new Date(s);
+    return isNaN(d) ? null : d;
+}
+
+function tpDateKey(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function tpClassifyCheckIn(timeIn) {
+    const t = String(timeIn || '').slice(0, 5);
+    if (!/^\d{2}:\d{2}$/.test(t)) return '';
+    return t <= TEACHER_CUTOFF ? 'present' : 'late';
+}
+
+// Full day-by-day log for one teacher: real check-ins plus derived absences.
+// Returns [{ date: Date, status, timeIn, note }] newest first.
+function getTeacherAttendanceLog(teacher) {
+    const raw = getData(TEACHER_ATTENDANCE_KEY);
+    const all = Array.isArray(raw) ? raw : [];
+    const idOf = r => r.teacherId || r.teacher_id;
+
+    const byDay = new Map();
+    all.filter(r => idOf(r) === teacher.id).forEach(r => {
+        const date = tpParseDate(r.date);
+        const status = tpClassifyCheckIn(r.timeIn || r.time_in);
+        if (date && status) byDay.set(tpDateKey(date), { date, status, timeIn: String(r.timeIn || r.time_in).slice(0, 5), note: r.note || '' });
+    });
+
+    // Absences only count from the day the school started using check-in (or the
+    // teacher's registration date, if later) so old days are not wrongly marked absent.
+    const allDates = all.map(r => tpParseDate(r.date)).filter(Boolean);
+    if (allDates.length) {
+        let start = new Date(Math.min(...allDates));
+        const reg = tpParseDate(teacher.registrationDate);
+        if (reg && reg > start) start = reg;
+        const today = new Date(); today.setHours(0, 0, 0, 0); // today stays open until it has ended
+        for (let d = new Date(start); d < today; d.setDate(d.getDate() + 1)) {
+            const key = tpDateKey(d), dow = d.getDay();
+            if (dow === 0 || dow === 6 || TEACHER_HOLIDAYS.includes(key) || byDay.has(key)) continue;
+            byDay.set(key, { date: new Date(d), status: 'absent', timeIn: '', note: 'No check-in recorded' });
+        }
+    }
+    return Array.from(byDay.values()).sort((a, b) => b.date - a.date);
+}
+
+function renderTeacherAttendancePanel(t, year) {
+    const panel = document.getElementById('tpPanel-attendance');
+    if (!panel) return;
+    const all = getTeacherAttendanceLog(t);
+    const currentYear = new Date().getFullYear();
+    const years = Array.from(new Set([currentYear, ...all.map(r => r.date.getFullYear())])).sort((a, b) => b - a);
+    const selected = year && years.includes(Number(year)) ? Number(year) : currentYear;
+    const records = all.filter(r => r.date.getFullYear() === selected);
+
+    const present = records.filter(r => r.status === 'present').length;
+    const absent = records.filter(r => r.status === 'absent').length;
+    const late = records.filter(r => r.status === 'late').length;
+    const total = records.length;
+    // A late teacher still came to school, so Late counts toward attendance.
+    const rate = total ? Math.round(((present + late) / total) * 100) : 0;
+
+    const card = (cls, label, value) =>
+        `<div class="tp-att-card ${cls}"><div class="tp-att-label">${label}</div><div class="tp-att-value">${value}</div></div>`;
+    const label = { present: 'Present', absent: 'Absent', late: 'Late' };
+
+    const rows = records.map(r => `
+        <tr>
+            <td>${tpEsc(r.date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }))}</td>
+            <td><span class="tp-att-badge ${r.status}">${label[r.status]}</span></td>
+            <td>${tpEsc(r.timeIn || '—')}</td>
+            <td>${tpEsc(r.note || '—')}</td>
+        </tr>`).join('');
+
+    panel.innerHTML = `
+        <div class="tp-att-toolbar">
+            <div><label for="tpAttYear">Academic year</label>
+                <select id="tpAttYear" onchange="changeTeacherAttendanceYear('${t.id}', this.value)">
+                    ${years.map(y => `<option value="${y}"${y === selected ? ' selected' : ''}>${y}</option>`).join('')}
+                </select></div>
+        </div>
+        <div class="tp-att-cards">
+            ${card('present', 'Present', present)}
+            ${card('absent', 'Absent', absent)}
+            ${card('late', 'Late', late)}
+            ${card('rate', 'Attendance rate', rate + '%')}
+        </div>
+        <p class="tp-att-note">Check in by ${TEACHER_CUTOFF} = Present, after = Late, no check-in on a school day = Absent. Rate = (present + late) ÷ ${total} recorded day${total === 1 ? '' : 's'}. Today counts once it has ended.</p>
+        <div class="tp-att-log">
+            ${total ? `<table>
+                <thead><tr><th>Date</th><th>Status</th><th>Time in</th><th>Note</th></tr></thead>
+                <tbody>${rows}</tbody></table>`
+            : `<div class="tp-att-empty">No attendance recorded for ${selected} yet.</div>`}
+        </div>`;
+}
+
+function changeTeacherAttendanceYear(teacherId, year) {
+    const t = (getData('teachers') || []).find(x => x.id === teacherId);
+    if (t) renderTeacherAttendancePanel(t, year);
 }
 
 // ---------- Credential popup (create password / create login / change username) ----------
