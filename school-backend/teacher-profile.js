@@ -155,6 +155,19 @@ function tpPhoneActions(raw) {
     </span>`;
 }
 
+// Returns an error message if another teacher already uses this email or phone, else ''
+function findDuplicateTeacher(fields, excludeId) {
+    const all = getData('teachers');
+    const others = (Array.isArray(all) ? all : []).filter(t => t.id !== excludeId);
+    const email = (fields.email || '').trim().toLowerCase();
+    const phone = tpIntlPhone(fields.phone); // 0781968103 and +263781968103 count as the same number
+    for (const t of others) {
+        if (email && (t.email || '').trim().toLowerCase() === email) return `That email is already used by ${t.name} (${t.id}).`;
+        if (phone && tpIntlPhone(t.phone) === phone) return `That phone number is already used by ${t.name} (${t.id}).`;
+    }
+    return '';
+}
+
 // No 0/O or 1/l/I so a password read aloud isn't misread
 function generateTempPassword(length = 8) {
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
@@ -250,6 +263,8 @@ document.addEventListener('submit', function (e) {
         emergencyPhone: document.getElementById('teacherEmergencyPhoneInput').value.trim()
     };
     if (!name) return showNotification('Teacher name is required', 'warning');
+    const duplicate = findDuplicateTeacher(fields, editId);
+    if (duplicate) return showNotification(duplicate, 'error');
 
     let teachers = getData('teachers') || [];
     if (!Array.isArray(teachers)) teachers = [];
