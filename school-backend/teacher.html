@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="teacher.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -77,11 +78,11 @@
     <!-- CREDENTIALS -->
     <div class="page" id="page-credentials">
       <div class="page-header">
-        <h2>Student <span>Credentials</span></h2>
-        <p>Create login accounts so students can access their dashboard</p>
+        <h2>Student <span>Login</span></h2>
+        <p>Set or reset a student's password. Their login ID is always their existing student ID — shown in the dropdown below — so it always matches the rest of the system.</p>
       </div>
       <div class="card">
-        <div class="card-header"><h3>Create Credentials</h3></div>
+        <div class="card-header"><h3>Set / Reset Password</h3></div>
         <div class="card-body">
           <form id="createStudentForm">
             <div class="form-grid">
@@ -92,16 +93,12 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>Student Login ID</label>
-                <input type="text" id="studentId" placeholder="e.g. STU001" required />
-              </div>
-              <div class="form-group">
-                <label>Set Password</label>
+                <label>New Password</label>
                 <input type="password" id="studentPassword" placeholder="Choose a password" required />
               </div>
             </div>
             <div class="form-actions">
-              <button type="submit" class="btn primary">Create Login Account</button>
+              <button type="submit" class="btn primary">Save Password</button>
             </div>
           </form>
         </div>
@@ -277,6 +274,7 @@
       <div class="card">
         <div class="card-header"><h3>New Assignment</h3></div>
         <div class="card-body">
+          <p class="muted-text" style="margin-bottom:1rem;">This feature isn't connected yet — file sending is being rebuilt. The form below won't send anything until that's done.</p>
           <form id="sendWorkForm">
             <div class="form-grid">
               <div class="form-group">
