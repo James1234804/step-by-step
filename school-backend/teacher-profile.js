@@ -97,11 +97,23 @@
         .tp-nci-btn:hover { border-color: var(--primary-color, #ea580c); }
         .tp-nci-btn.ok { color: var(--success-color, #16a34a); }
         .tp-nci-count { background: #fee2e2; color: #b91c1c; font-size: 0.78rem; font-weight: 700; padding: 0.1rem 0.6rem; border-radius: 999px; }
-        .tp-nci-list { max-height: 360px; overflow-y: auto; }
-        .tp-nci-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.7rem 0; border-top: 1px solid var(--border-color, #e2e8f0); }
-        .tp-nci-name { background: none; border: none; padding: 0; font: inherit; font-weight: 600; cursor: pointer; color: inherit; text-align: left; }
+        .tp-nci-summary { margin-bottom: 1rem; }
+        .tp-nci-date { color: var(--muted-text); font-size: 0.85rem; margin-bottom: 0.5rem; }
+        .tp-nci-progress { display: flex; justify-content: space-between; font-size: 0.88rem; font-weight: 600; margin-bottom: 0.4rem; }
+        .tp-nci-bar { height: 8px; border-radius: 8px; background: var(--light-bg, #f1f5f9); overflow: hidden; }
+        .tp-nci-bar div { height: 100%; border-radius: 8px; background: var(--success-color, #16a34a); transition: width 0.3s ease; }
+        .tp-nci-list { max-height: 380px; overflow-y: auto; }
+        .tp-nci-row { display: flex; align-items: center; gap: 0.85rem; padding: 0.85rem 1rem; margin-bottom: 0.6rem; border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; background: var(--light-bg, #f8fafc); }
+        .tp-nci-avatar { flex: none; width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; background: var(--primary-tint-strong, #ffedd5); color: var(--primary-color, #ea580c); }
+        .tp-nci-info { flex: 1; min-width: 0; }
+        .tp-nci-top { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+        .tp-nci-name { background: none; border: none; padding: 0; font: inherit; font-weight: 700; cursor: pointer; color: inherit; text-align: left; }
         .tp-nci-name:hover { color: var(--primary-color, #ea580c); }
-        .tp-nci-dept { color: var(--muted-text); font-size: 0.82rem; margin-left: 0.5rem; }
+        .tp-nci-chip { font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.55rem; border-radius: 999px; }
+        .tp-nci-chip.pending { background: #fef3c7; color: #b45309; }
+        .tp-nci-chip.overdue { background: #fee2e2; color: #b91c1c; }
+        .tp-nci-meta { color: var(--muted-text); font-size: 0.84rem; margin-top: 0.15rem; }
+        .tp-nci-last { color: var(--muted-text); font-size: 0.78rem; margin-top: 0.1rem; }
         .tp-nci-ok { color: var(--success-color, #16a34a); font-weight: 600; padding: 0.5rem 0; }
         @media (max-width: 640px) { .tp-att-cards { grid-template-columns: repeat(2, 1fr); } }
     </style>`);
@@ -608,10 +620,11 @@ function getTeachersNotCheckedIn() {
     if (!schoolDay || !teachers.length) return null;
 
     const rawAtt = getData(TEACHER_ATTENDANCE_KEY);
-    const checkedIn = new Set((Array.isArray(rawAtt) ? rawAtt : [])
+    const records = Array.isArray(rawAtt) ? rawAtt : [];
+    const checkedIn = new Set(records
         .filter(r => { const d = tpParseDate(r.date); return d && tpDateKey(d) === todayKey; })
         .map(r => r.teacherId || r.teacher_id));
-    return teachers.filter(t => !checkedIn.has(t.id));
+    return { total: teachers.length, missing: teachers.filter(t => !checkedIn.has(t.id)), records };
 }
 
 function ensureNotCheckedInUI() {
@@ -638,7 +651,7 @@ function ensureNotCheckedInUI() {
 
     document.body.insertAdjacentHTML('beforeend', `
         <div id="tpNciModal" class="modal" aria-hidden="true">
-            <div class="modal-content" style="max-width:520px;">
+            <div class="modal-content" style="max-width:560px;">
                 <div class="modal-header">
                     <h3>Not checked in today</h3>
                     <button class="modal-close" onclick="closeNotCheckedInList()">✕</button>
@@ -651,17 +664,49 @@ function ensureNotCheckedInUI() {
     return btn;
 }
 
-function fillNotCheckedInList(missing) {
+function fillNotCheckedInList(info) {
     const body = document.getElementById('tpNciBody');
-    if (!body) return;
-    body.innerHTML = (missing && missing.length)
-        ? `<div class="tp-nci-list">${missing.map(t => `
-            <div class="tp-nci-row">
-                <div><button class="tp-nci-name" onclick="closeNotCheckedInList(); openTeacherProfile('${tpEsc(t.id)}', 'attendance')">${tpEsc(t.name)}</button>
-                    <span class="tp-nci-dept">${tpEsc(t.department || '')}</span></div>
-                ${tpPhoneActions(t.phone)}
-            </div>`).join('')}</div>`
-        : `<div class="tp-nci-ok">✓ Everyone has checked in today</div>`;
+    if (!body || !info) return;
+    const now = new Date();
+    const clock = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    const pastCutoff = clock > TEACHER_CUTOFF;
+    const done = info.total - info.missing.length;
+    const pct = Math.round((done / info.total) * 100);
+    const dateLabel = now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+
+    const lastCheckIn = id => {
+        const mine = info.records
+            .filter(r => (r.teacherId || r.teacher_id) === id && tpParseDate(r.date))
+            .sort((x, y) => tpParseDate(y.date) - tpParseDate(x.date))[0];
+        if (!mine) return 'No check-ins yet';
+        const time = String(mine.timeIn || mine.time_in || '').slice(0, 5);
+        return 'Last check-in: ' + tpParseDate(mine.date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) + (time ? ' · ' + time : '');
+    };
+    const chip = pastCutoff
+        ? '<span class="tp-nci-chip overdue">Overdue</span>'
+        : `<span class="tp-nci-chip pending">Expected by ${tpEsc(TEACHER_CUTOFF)}</span>`;
+
+    const rows = info.missing.map(t => `
+        <div class="tp-nci-row">
+            <div class="tp-nci-avatar">${tpEsc((t.name || '?').trim().charAt(0).toUpperCase())}</div>
+            <div class="tp-nci-info">
+                <div class="tp-nci-top">
+                    <button class="tp-nci-name" onclick="closeNotCheckedInList(); openTeacherProfile('${tpEsc(t.id)}', 'attendance')">${tpEsc(t.name)}</button>
+                    ${chip}
+                </div>
+                <div class="tp-nci-meta">${tpEsc([t.department, t.phone].filter(Boolean).join(' · ') || t.id)}</div>
+                <div class="tp-nci-last">${tpEsc(lastCheckIn(t.id))}</div>
+            </div>
+            ${tpPhoneActions(t.phone)}
+        </div>`).join('');
+
+    body.innerHTML = `
+        <div class="tp-nci-summary">
+            <div class="tp-nci-date">${tpEsc(dateLabel)}</div>
+            <div class="tp-nci-progress"><span>${done} of ${info.total} checked in</span><span>${pct}%</span></div>
+            <div class="tp-nci-bar"><div style="width:${pct}%"></div></div>
+        </div>
+        ${info.missing.length ? `<div class="tp-nci-list">${rows}</div>` : '<div class="tp-nci-ok">✓ Everyone has checked in today</div>'}`;
 }
 
 function openNotCheckedInList() {
@@ -676,14 +721,15 @@ function closeNotCheckedInList() {
 function renderNotCheckedIn() {
     const btn = ensureNotCheckedInUI();
     if (!btn) return;
-    const missing = getTeachersNotCheckedIn();
-    if (missing === null) { btn.style.display = 'none'; closeNotCheckedInList(); return; }
+    const info = getTeachersNotCheckedIn();
+    if (info === null) { btn.style.display = 'none'; closeNotCheckedInList(); return; }
+    const count = info.missing.length;
     btn.style.display = '';
-    btn.className = 'tp-nci-btn' + (missing.length ? '' : ' ok');
-    btn.innerHTML = missing.length
-        ? `Not checked in <span class="tp-nci-count">${missing.length}</span>`
+    btn.className = 'tp-nci-btn' + (count ? '' : ' ok');
+    btn.innerHTML = count
+        ? `Not checked in <span class="tp-nci-count">${count}</span>`
         : '✓ All checked in';
-    if (document.getElementById('tpNciModal')?.getAttribute('aria-hidden') === 'false') fillNotCheckedInList(missing);
+    if (document.getElementById('tpNciModal')?.getAttribute('aria-hidden') === 'false') fillNotCheckedInList(info);
 }
 
 // ---------- Credential popup (create password / create login / change username) ----------
