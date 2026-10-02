@@ -1,51 +1,197 @@
- const API_URL = 'https://shallom-high-elite.onrender.com/api';
+ // ============================================================
+// teacher.js — Teacher Dashboard
+// Supabase-backed. This file no longer talks to the old Render
+// backend (shallom-high-elite.onrender.com) — that server is dead,
+// and every fetch() call to it was silently failing, meaning
+// attendance, timetables, announcements and student credentials
+// created from this page never actually reached the server. Only
+// Send Work (file uploads) still depends on the old backend and is
+// known to be broken — that's a separate fix, not done here.
+// ============================================================
 
 function showNotification(msg, type) {
-    alert(msg);
+    const el = document.createElement('div');
+    el.className = `notification ${type || 'info'}`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3500);
 }
 
-function getToken() {
-    return localStorage.getItem('authToken') || '';
+// ---------- Supabase client (same project as the admin dashboard) ----------
+const SUPABASE_URL = 'https://tnrxsrjzdshjuhvebkck.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRucnhzcmp6ZHNoanVodmVia2NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA1NTcsImV4cCI6MjA5Mjc5NjU1N30.4b6CAXXs21aIJKm1qi9bOuIE5zDfJiEQze9hoxSJ7ig';
+
+const supabaseClient = (window.supabase && window.supabase.createClient)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
+
+if (!supabaseClient) {
+    console.warn('Supabase client failed to initialize — check that the supabase-js <script> tag is in teacher.html and loaded before teacher.js.');
 }
 
-function authHeaders() {
-    return {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${getToken()}`
-    };
+// Tables this page is allowed to sync with a safe full-array UPSERT.
+// Same hard rule as the admin dashboard's school.js: upsert only ever
+// adds/updates rows present locally. It can NEVER delete anything just
+// because the local array looks empty — that was the exact bug that
+// wiped real student data before. Deletions go through deleteRowFromBackend
+// below, only from an actual "Delete" click.
+const SYNC_KEYS = ['students', 'attendance', 'studentTimetables', 'announcements'];
+// Tables this page only reads (owned/written by the admin dashboard).
+const LOAD_ONLY_KEYS = ['teachers', 'classes'];
+
+function mapRowForSupabase(table, item) {
+    switch (table) {
+        case 'students':
+            return {
+                id: item.id,
+                name: item.name,
+                class: item.class || '',
+                gender: item.gender || '',
+                password: item.password || '',
+                status: item.status || 'Active',
+                date_added: item.dateAdded || '',
+                parent_name: item.parentName || '',
+                phone: item.phone || '',
+                enrollment_year: item.enrollmentYear || null
+            };
+        case 'attendance':
+            return {
+                id: item.id,
+                student_id: item.studentId,
+                class: item.class || '',
+                date: item.date || '',
+                status: item.status || '',
+                teacher: item.teacher || item.createdBy || '',
+                note: item.note || ''
+            };
+        case 'studentTimetables':
+            return {
+                id: item.id,
+                class: item.class || '',
+                day: item.day || '',
+                subject: item.subject || '',
+                teacher: item.teacher || '',
+                start_time: item.start || '',
+                end_time: item.end || '',
+                room: item.room || ''
+            };
+        case 'announcements':
+            return {
+                id: item.id,
+                title: item.title || '',
+                body: item.body || '',
+                urgent: !!item.urgent,
+                class_name: item.className || '',
+                teacher: item.teacher || '',
+                date: item.date || ''
+            };
+        default:
+            return item;
+    }
 }
 
-async function syncToBackend(key, data) {
+function mapRowFromSupabase(table, row) {
+    switch (table) {
+        case 'students':
+            return { id: row.id, name: row.name, class: row.class, gender: row.gender, password: row.password, status: row.status || 'Active', dateAdded: row.date_added || '', parentName: row.parent_name || '', phone: row.phone || '', enrollmentYear: row.enrollment_year || '' };
+        case 'teachers':
+            return { id: row.id, name: row.name, department: row.department, email: row.email, phone: row.phone, status: row.status, username: row.username, class: row.class };
+        case 'classes':
+            return { id: row.id, name: row.name, formLevel: row.form_level, teacher: row.teacher, teacherId: row.teacher_id || '', room: row.room };
+        case 'attendance':
+            return { id: row.id, studentId: row.student_id, class: row.class, date: row.date, status: row.status, teacher: row.teacher, note: row.note };
+        case 'studentTimetables':
+            return { id: row.id, class: row.class, day: row.day, subject: row.subject, teacher: row.teacher, start: row.start_time, end: row.end_time, room: row.room };
+        case 'announcements':
+            return { id: row.id, title: row.title, body: row.body, urgent: !!row.urgent, className: row.class_name, teacher: row.teacher, date: row.date };
+        default:
+            return row;
+    }
+}
+
+// Supabase table names differ slightly from the localStorage keys for two
+// of these (studentTimetables -> student_timetables); this maps that.
+function backendTableName(key) {
+    if (key === 'studentTimetables') return 'student_timetables';
+    return key;
+}
+
+function getData(key) {
     try {
-        await fetch(`${API_URL}/sync`, {
-            method: 'POST',
-            headers: authHeaders(),
-            body: JSON.stringify({ key, data })
-        });
-    } catch(e) {
-        console.warn('Backend sync failed:', e);
+        const data = localStorage.getItem(key);
+        return data ? JSON.parse(data) : null;
+    } catch (e) {
+        console.error('Error reading:', e);
+        return null;
+    }
+}
+
+function saveData(key, data) {
+    try {
+        localStorage.setItem(key, JSON.stringify(data));
+        if (SYNC_KEYS.includes(key)) syncToBackend(key, data);
+        return true;
+    } catch (e) {
+        console.error('Error saving:', e);
+        return false;
+    }
+}
+
+// Safe upsert-only sync — see the big comment at the top of this file.
+async function syncToBackend(key, data) {
+    if (!supabaseClient) { console.warn(`Supabase client missing — could not sync "${key}"`); return; }
+    if (!Array.isArray(data) || data.length === 0) {
+        console.log(`(sync) "${key}": local array is empty — nothing upserted, remote data left untouched`);
+        return;
+    }
+    try {
+        const table = backendTableName(key);
+        const rows = data.map(item => mapRowForSupabase(key, item));
+        const { error } = await supabaseClient.from(table).upsert(rows, { onConflict: 'id' });
+        if (error) {
+            console.warn(`✗ Supabase upsert FAILED for "${key}":`, error.message);
+            showNotification(`Warning: "${key}" may not have saved to the server.`, 'error');
+        } else {
+            console.log(`✓ Synced ${rows.length} record(s) to Supabase "${table}" table (upsert)`);
+        }
+    } catch (e) {
+        console.warn(`✗ Supabase sync threw an error for "${key}":`, e);
+    }
+}
+
+// The ONLY way a row is removed remotely — a specific, deliberate delete.
+async function deleteRowFromBackend(key, id) {
+    if (!supabaseClient || !id) return;
+    const table = backendTableName(key);
+    try {
+        const { error } = await supabaseClient.from(table).delete().eq('id', id);
+        if (error) console.warn(`✗ Supabase delete FAILED for "${table}" id=${id}:`, error.message);
+        else console.log(`✓ Deleted "${table}" id=${id} from Supabase`);
+    } catch (e) {
+        console.warn(`✗ Supabase delete threw an error for "${table}":`, e);
     }
 }
 
 async function loadFromBackend() {
-    try {
-        const res = await fetch(`${API_URL}/sync`, { headers: authHeaders() });
-        const allData = await res.json();
-        Object.entries(allData).forEach(([key, value]) => {
-            if (value && value.length > 0) {
-                localStorage.setItem(key, JSON.stringify(value));
-                console.log(`✓ Loaded ${key} from backend`);
+    if (!supabaseClient) return;
+    const allKeys = [...SYNC_KEYS, ...LOAD_ONLY_KEYS];
+    for (const key of allKeys) {
+        try {
+            const table = backendTableName(key);
+            const { data, error } = await supabaseClient.from(table).select('*');
+            if (error) { console.warn(`Could not load ${key} from Supabase:`, error.message); continue; }
+            if (data) {
+                const mapped = data.map(row => mapRowFromSupabase(key, row));
+                localStorage.setItem(key, JSON.stringify(mapped));
+                console.log(`✓ Loaded ${key} from Supabase (${mapped.length} records)`);
             }
-        });
-    } catch(e) {
-        console.warn('Could not load from backend, using localStorage:', e);
+        } catch (e) {
+            console.warn(`Error loading ${key} from Supabase:`, e);
+        }
     }
 }
 
 (function(){
-  function getData(key){try{return JSON.parse(localStorage.getItem(key));}catch(e){return null}}
-  function saveData(key,val){try{localStorage.setItem(key,JSON.stringify(val));return true;}catch(e){console.error('Save error:',e);return false;}}
-
   function ensureAuth(){
     const cur = getData('currentUser');
     if(!cur){ window.location.href='login.html'; return null }
@@ -200,8 +346,7 @@ async function loadFromBackend() {
         if(!Array.isArray(timetables)) timetables = [];
         timetables.push({ id: 'STT' + Date.now(), ...entry });
         if(saveData('studentTimetables', timetables)){
-            syncToBackend('studentTimetables', timetables);
-            alert('Entry added to student timetable!');
+            showNotification('Entry added to student timetable!', 'success');
             renderStudentTimetable();
         }
     }
@@ -209,7 +354,7 @@ async function loadFromBackend() {
     window.editTimetableEntry = function(id) {
         let timetables = getData('studentTimetables') || [];
         const idx = timetables.findIndex(t => t.id === id);
-        if(idx === -1) return alert('Entry not found');
+        if(idx === -1) return showNotification('Entry not found', 'error');
         const current = timetables[idx];
         const day = prompt('Day:', current.day); if(!day) return;
         const subject = prompt('Subject:', current.subject); if(!subject) return;
@@ -219,9 +364,8 @@ async function loadFromBackend() {
         const room = prompt('Room number:', current.room || '');
         timetables[idx] = { ...current, day, subject, teacher, start, end, room };
         if(saveData('studentTimetables', timetables)){
-            syncToBackend('studentTimetables', timetables);
             renderStudentTimetable();
-            alert('Entry updated!');
+            showNotification('Entry updated!', 'success');
         }
     };
 
@@ -230,7 +374,7 @@ async function loadFromBackend() {
         let timetables = getData('studentTimetables') || [];
         timetables = timetables.filter(t => t.id !== id);
         if(saveData('studentTimetables', timetables)){
-            syncToBackend('studentTimetables', timetables);
+            deleteRowFromBackend('studentTimetables', id);
             renderStudentTimetable();
         }
     };
@@ -241,14 +385,14 @@ async function loadFromBackend() {
             e.preventDefault();
             const classes = getData('classes') || [];
             const myClass = classes.find(c => c.teacher === user.name || c.teacher === user.username);
-            if(!myClass) return alert('No class assigned to you');
+            if(!myClass) return showNotification('No class assigned to you', 'error');
             const day = document.getElementById('ttDay').value;
             const subject = document.getElementById('ttSubject').value.trim();
             const teacher = document.getElementById('ttTeacher').value.trim() || user.name;
             const start = document.getElementById('ttStart').value;
             const end = document.getElementById('ttEnd').value;
             const room = document.getElementById('ttRoom').value.trim();
-            if(!day || !subject || !start || !end) return alert('Fill all required fields');
+            if(!day || !subject || !start || !end) return showNotification('Fill all required fields', 'error');
             addStudentTimetableEntry({ class: myClass.name, day, subject, teacher, start, end, room });
             ttFormEl.reset();
         });
@@ -257,7 +401,7 @@ async function loadFromBackend() {
     renderStudentTimetable();
 
     // ===========================
-    // ATTENDANCE
+    // ATTENDANCE (marking students)
     // ===========================
     function loadAttendance(){ const a=getData('attendance')||[]; return Array.isArray(a)?a:[]; }
 
@@ -292,10 +436,10 @@ async function loadFromBackend() {
       e.preventDefault();
       const date=document.getElementById('attDate').value;
       const cls=document.getElementById('attClassSelect').value;
-      if(!date||!cls){ alert('Please select date and class'); return; }
+      if(!date||!cls){ showNotification('Please select date and class', 'error'); return; }
       const students=getData('students')||[];
       const clsStudents=(Array.isArray(students)?students:[]).filter(s=>s.class===cls);
-      if(clsStudents.length===0){ alert('No students in this class'); return; }
+      if(clsStudents.length===0){ showNotification('No students in this class', 'error'); return; }
       attToggleState={};
       const listEl=document.getElementById('attStudentMarkingList'); listEl.innerHTML='';
       clsStudents.forEach(s=>{
@@ -313,7 +457,7 @@ async function loadFromBackend() {
     document.getElementById('attSaveBtn').addEventListener('click',()=>{
       const date=document.getElementById('attDate').value;
       const cls=document.getElementById('attClassSelect').value;
-      if(!date||!cls){ alert('Select date and class'); return; }
+      if(!date||!cls){ showNotification('Select date and class', 'error'); return; }
       const students=getData('students')||[];
       const clsStudents=(Array.isArray(students)?students:[]).filter(s=>s.class===cls);
       let atts=loadAttendance(); if(!Array.isArray(atts)) atts=[];
@@ -325,20 +469,19 @@ async function loadFromBackend() {
       });
       try{
         if(saveData('attendance',atts)){
-          syncToBackend('attendance',atts);
           const presentCount=Object.values(attToggleState).filter(v=>v).length;
           let notifications=getData('attendanceNotifications')||[]; if(!Array.isArray(notifications)) notifications=[];
           notifications.unshift({id:'N'+String(notifications.length+1).padStart(5,'0'),type:'attendance',teacher:user.name||user.username,class:cls,presentCount,totalCount:clsStudents.length,date,timestamp:new Date().toLocaleString(),message:`${user.name||user.username} marked attendance for ${cls}: ${presentCount}/${clsStudents.length} students present`,read:false});
           if(notifications.length>50) notifications=notifications.slice(0,50);
-          saveData('attendanceNotifications',notifications); syncToBackend('attendanceNotifications',notifications);
-          alert('Attendance saved successfully');
+          localStorage.setItem('attendanceNotifications', JSON.stringify(notifications));
+          showNotification('Attendance saved successfully', 'success');
           addActivity('📋',`Marked attendance for ${cls} on ${date}`);
           renderAttendance(currentDayFilter);
           document.getElementById('attMarkingCard').style.display='none';
           document.getElementById('attForm').reset();
           attToggleState={};
-        }else{ alert('Error: Could not save attendance data'); }
-      }catch(err){ console.error('Attendance save error:',err); alert('Error saving attendance: '+err.message); }
+        }else{ showNotification('Error: Could not save attendance data', 'error'); }
+      }catch(err){ console.error('Attendance save error:',err); showNotification('Error saving attendance: '+err.message, 'error'); }
     });
 
     document.getElementById('attCancelBtn').addEventListener('click',()=>{ document.getElementById('attMarkingCard').style.display='none'; attToggleState={}; });
@@ -357,6 +500,12 @@ async function loadFromBackend() {
     // ===========================
     // MY STUDENTS + CREDENTIALS
     // ===========================
+    // A student's login is their existing student ID (the same id used
+    // everywhere else — classes, fees, attendance) plus a password, set on
+    // the student record itself. There is no separate "login ID" anymore —
+    // the old version let a teacher type an arbitrary one, which could
+    // drift out of sync with the real student record used by the rest of
+    // the system. This only ever sets/resets the password.
     function renderTeacherStudents(){
       try{
         const listEl=document.getElementById('teacherStudentsList');
@@ -378,8 +527,8 @@ async function loadFromBackend() {
           } else {
             clsStudents.forEach(s=>{
               const li=document.createElement('li'); li.style.padding='4px 0';
-              const hasLogin=s.studentId&&s.password;
-              li.textContent=`${s.name} (${s.class}) ${hasLogin?'✅ Has login':'❌ No login yet'}`;
+              const hasLogin = !!s.password;
+              li.textContent=`${s.name} (${s.class}) — ID: ${s.id} ${hasLogin?'✅ Has login':'❌ No password set'}`;
               listEl.appendChild(li);
             });
           }
@@ -388,7 +537,7 @@ async function loadFromBackend() {
           myStudents.forEach(s=>{
             const opt=document.createElement('option');
             opt.value=s.id;
-            opt.textContent=`${s.name} (${s.class})${s.studentId?' — has login':''}`;
+            opt.textContent=`${s.name} (${s.class}) — ID: ${s.id}`;
             selectEl.appendChild(opt);
           });
         }
@@ -398,51 +547,48 @@ async function loadFromBackend() {
 
     const createStudentForm=document.getElementById('createStudentForm');
     if(createStudentForm){
-      createStudentForm.addEventListener('submit',async(e)=>{
+      createStudentForm.addEventListener('submit',(e)=>{
         e.preventDefault();
         const studentDbId=document.getElementById('studentSelect').value;
-        const studentId=document.getElementById('studentId').value.trim();
         const password=document.getElementById('studentPassword').value;
-        if(!studentDbId){ alert('Please select a student from the dropdown'); return; }
-        const res=await fetch('https://shallom-high-elite.onrender.com/api/teacher/set-credentials',{
-          method:'POST', headers:authHeaders(),
-          body:JSON.stringify({studentDbId,studentId,password})
-        });
-        const data=await res.json();
-        if(data.success){
-          alert(`Login credentials created for ${data.name}!\nThey can now log in with ID: ${studentId}`);
+        if(!studentDbId) return showNotification('Please select a student from the dropdown', 'error');
+        if(!password) return showNotification('Please choose a password', 'error');
+
+        let students = getData('students') || [];
+        const idx = students.findIndex(s => s.id === studentDbId);
+        if(idx === -1) return showNotification('Student not found', 'error');
+
+        students[idx] = { ...students[idx], password };
+        if(saveData('students', students)){
+          showNotification(`Login saved for ${students[idx].name}. ID: ${students[idx].id}`, 'success');
+          addActivity('🔑', `Set a password for ${students[idx].name}`);
           e.target.reset();
-          await loadFromBackend();
           renderTeacherStudents();
-        } else { alert(data.message||'Failed to create credentials'); }
+        } else {
+          showNotification('Could not save — please try again', 'error');
+        }
       });
     }
 
     // ===========================
-    // SEND WORK
+    // SEND WORK — STILL BROKEN
     // ===========================
+    // This still depends on the dead Render backend for file upload and
+    // submission tracking (/api/teacher/send-work, /api/sync,
+    // /api/teacher/sent-work). It is NOT fixed in this update — the file
+    // upload side needs Supabase Storage set up, which is a separate job.
+    // Left as-is on purpose rather than silently removed.
     const sendWorkForm = document.getElementById('sendWorkForm');
     if(sendWorkForm){
-      sendWorkForm.addEventListener('submit', async(e)=>{
+      sendWorkForm.addEventListener('submit', (e)=>{
         e.preventDefault();
-        const currentUser = getData('currentUser');
-        const teacherName = currentUser ? currentUser.name : null;
-        const formData = new FormData();
-        formData.append('title', document.getElementById('workTitle').value);
-        formData.append('file', document.getElementById('workFile').files[0]);
-        formData.append('dueDate', document.getElementById('dueDate').value);
-        formData.append('teacherName', teacherName);
-        const res = await fetch('https://shallom-high-elite.onrender.com/api/teacher/send-work', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${getToken()}` },
-          body: formData
-        });
-        const data = await res.json();
-        if(data.success){ alert(`Work sent to ${data.studentCount} students!`); e.target.reset(); loadSentWork(); }
-        else { alert('Failed to send work: ' + (data.message||'')); }
+        showNotification('Send Work is not connected yet — this feature is being rebuilt. Nothing was sent.', 'error');
       });
     }
-    loadSentWork();
+    const sentWorkContainer = document.getElementById('sentWorkList');
+    if (sentWorkContainer) {
+      sentWorkContainer.innerHTML = '<p class="muted-text">Send Work isn\'t connected yet — coming soon.</p>';
+    }
 
     // ===========================
     // ANNOUNCEMENTS
@@ -486,7 +632,7 @@ async function loadFromBackend() {
         let announcements = getData('announcements') || [];
         announcements = announcements.filter(a => a.id !== id);
         if (saveData('announcements', announcements)) {
-            syncToBackend('announcements', announcements);
+            deleteRowFromBackend('announcements', id);
             loadAnnouncements();
         }
     };
@@ -499,11 +645,11 @@ async function loadFromBackend() {
             const myClass = classes.find(c =>
                 c.teacher === user.name || c.teacher === user.username
             );
-            if (!myClass) return alert('No class assigned to you');
+            if (!myClass) return showNotification('No class assigned to you', 'error');
             const title = document.getElementById('annTitle').value.trim();
             const body = document.getElementById('annBody').value.trim();
             const urgent = document.getElementById('annUrgent').checked;
-            if (!title || !body) return alert('Please fill all fields');
+            if (!title || !body) return showNotification('Please fill all fields', 'error');
             let announcements = getData('announcements') || [];
             if (!Array.isArray(announcements)) announcements = [];
             announcements.push({
@@ -514,10 +660,9 @@ async function loadFromBackend() {
                 date: new Date().toISOString()
             });
             if (saveData('announcements', announcements)) {
-                syncToBackend('announcements', announcements);
                 loadAnnouncements();
                 annFormEl.reset();
-                alert('Announcement posted!');
+                showNotification('Announcement posted!', 'success');
             }
         });
     }
@@ -525,122 +670,4 @@ async function loadFromBackend() {
     loadAnnouncements();
 
   }); // end DOMContentLoaded
-
-  // ===========================
-  // SENT WORK + WHO RECEIVED
-  // Replace the entire loadSentWork function in teacher.js with this:
-
-async function loadSentWork(){
-    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
-    const teacherName = currentUser ? currentUser.name : null;
-    if(!teacherName) return;
-
-    // Refresh submissions from backend
-    try {
-      const syncRes = await fetch('https://shallom-high-elite.onrender.com/api/sync', { headers: authHeaders() });
-      const syncData = await syncRes.json();
-      if(syncData.submissions && syncData.submissions.length > 0){
-        localStorage.setItem('submissions', JSON.stringify(syncData.submissions));
-      }
-    } catch(e) { console.warn('Could not refresh submissions:', e); }
-
-    try {
-      const res = await fetch(`https://shallom-high-elite.onrender.com/api/teacher/sent-work?teacherName=${encodeURIComponent(teacherName)}`, {
-        headers: authHeaders()
-      });
-      const data = await res.json();
-      const container = document.getElementById('sentWorkList'); if(!container) return;
-      if(!data.work || data.work.length === 0){
-        container.innerHTML = '<p class="muted-text">No assignments sent yet.</p>';
-        return;
-      }
-
-      // Load all submissions from localStorage
-      let allSubmissions = [];
-      try { allSubmissions = JSON.parse(localStorage.getItem('submissions')) || []; } catch(e){}
-
-      // Load dismissed work IDs (teacher hid them)
-      let dismissed = [];
-      try { dismissed = JSON.parse(localStorage.getItem('dismissedWork_' + teacherName)) || []; } catch(e){}
-
-      container.innerHTML = '';
-
-      // Filter out dismissed assignments
-      const visible = data.work.filter(w => !dismissed.includes(w.id));
-
-      if(visible.length === 0){
-        container.innerHTML = '<p class="muted-text">No assignments to show. <button class="btn-small btn-warning" onclick="restoreDismissed()">Restore All</button></p>';
-        return;
-      }
-
-      visible.forEach(w => {
-        const receivedList = allSubmissions.filter(s => s.workId === w.id && s.status === 'received');
-        const totalSent = w.studentIds ? w.studentIds.length : 0;
-
-        const receivedHTML = receivedList.length === 0
-          ? '<span style="color:#888;font-size:13px;">No students have marked received yet</span>'
-          : receivedList.map(s =>
-              `<span style="display:inline-block;background:#d4edda;color:#155724;padding:3px 10px;border-radius:20px;font-size:12px;margin:2px;">✅ ${s.studentName || s.studentId}</span>`
-            ).join('');
-
-        container.innerHTML += `
-          <div class="work-card" id="wcard-sent-${w.id}" style="flex-direction:column;align-items:flex-start;gap:8px;">
-            <div style="display:flex;justify-content:space-between;width:100%;align-items:center;">
-              <div>
-                <h4 style="margin:0 0 4px 0;">${w.title}</h4>
-                <p style="margin:0;color:#888;font-size:13px;">Due: ${w.dueDate} &nbsp;|&nbsp; Sent to: ${totalSent} student${totalSent !== 1 ? 's' : ''}</p>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="background:#e8f4fd;color:#1a6ea8;padding:4px 12px;border-radius:20px;font-size:13px;font-weight:600;">
-                  ${receivedList.length}/${totalSent} received
-                </span>
-                <button 
-                  onclick="dismissSentWork('${w.id}')" 
-                  title="Hide this assignment"
-                  style="background:#f5576c;color:#fff;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">
-                  ✕ Remove
-                </button>
-              </div>
-            </div>
-            <div style="margin-top:4px;">
-              <div style="font-size:12px;color:#666;margin-bottom:4px;font-weight:600;">WHO RECEIVED:</div>
-              <div>${receivedHTML}</div>
-            </div>
-          </div>`;
-      });
-
-      // Show restore button if any are dismissed
-      if(dismissed.length > 0){
-        container.innerHTML += `<p style="margin-top:8px;"><button class="btn-small btn-warning" onclick="restoreDismissed()">↩ Restore ${dismissed.length} hidden assignment${dismissed.length !== 1 ? 's' : ''}</button></p>`;
-      }
-
-    } catch(e) {
-      console.warn('Could not load sent work:', e);
-    }
-  }
-
-  // Hide an assignment card from view (stored locally per teacher)
-  window.dismissSentWork = function(workId) {
-    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
-    const teacherName = currentUser ? currentUser.name : null;
-    if(!teacherName) return;
-    const key = 'dismissedWork_' + teacherName;
-    let dismissed = [];
-    try { dismissed = JSON.parse(localStorage.getItem(key)) || []; } catch(e){}
-    if(!dismissed.includes(workId)) dismissed.push(workId);
-    localStorage.setItem(key, JSON.stringify(dismissed));
-    // Remove card from DOM instantly
-    const card = document.getElementById('wcard-sent-' + workId);
-    if(card) card.remove();
-    loadSentWork(); // refresh to update restore button count
-  };
-
-  // Restore all hidden assignments
-  window.restoreDismissed = function() {
-    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
-    const teacherName = currentUser ? currentUser.name : null;
-    if(!teacherName) return;
-    localStorage.removeItem('dismissedWork_' + teacherName);
-    loadSentWork();
-  };
 })();
