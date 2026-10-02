@@ -9,7 +9,9 @@
 //   alter table teachers
 //     add column if not exists gender text default '',
 //     add column if not exists address text default '',
-//     add column if not exists registration_date text default '';
+//     add column if not exists registration_date text default '',
+//     add column if not exists emergency_contact_name text default '',
+//     add column if not exists emergency_contact_phone text default '';
 (function () {
     const origFor = window.mapRowForSupabase;
     const origFrom = window.mapRowFromSupabase;
@@ -19,6 +21,8 @@
             row.gender = item.gender || '';
             row.address = item.address || '';
             row.registration_date = item.registrationDate || '';
+            row.emergency_contact_name = item.emergencyName || '';
+            row.emergency_contact_phone = item.emergencyPhone || '';
         }
         return row;
     };
@@ -28,6 +32,8 @@
             obj.gender = row.gender || '';
             obj.address = row.address || '';
             obj.registrationDate = row.registration_date || '';
+            obj.emergencyName = row.emergency_contact_name || '';
+            obj.emergencyPhone = row.emergency_contact_phone || '';
         }
         return obj;
     };
@@ -49,6 +55,10 @@
                 <option value="Inactive">Inactive</option></select></div>
             <div class="form-row"><label>Registration Date</label>
                 <input type="date" id="teacherRegDateInput"></div>
+            <div class="form-row"><label>Emergency Contact Name</label>
+                <input type="text" id="teacherEmergencyNameInput" placeholder="e.g. spouse, parent or relative"></div>
+            <div class="form-row"><label>Emergency Contact Phone</label>
+                <input type="tel" id="teacherEmergencyPhoneInput" placeholder="e.g. 0771234567"></div>
             <div id="teacherLoginFields">
                 <div class="form-row"><label>Login Username</label>
                     <input type="text" id="teacherLoginUsernameInput" placeholder="Leave blank to auto-create from name" autocomplete="off"></div>
@@ -88,6 +98,10 @@
         .tp-att-badge.absent { background: #fee2e2; color: #b91c1c; }
         .tp-att-badge.late { background: #fef3c7; color: #b45309; }
         .tp-att-empty { text-align: center; color: var(--muted-text); padding: 2rem 1rem; }
+        .tp-contact-actions { display: inline-flex; gap: 0.4rem; margin-left: 0.6rem; vertical-align: middle; }
+        .tp-contact-btn { display: inline-block; padding: 0.12rem 0.6rem; border-radius: 999px; font-size: 0.74rem; font-weight: 600; text-decoration: none; background: var(--primary-tint-strong, #ffedd5); color: var(--primary-color, #ea580c); }
+        .tp-contact-btn.wa { background: #dcfce7; color: #15803d; }
+        .tp-contact-btn:hover { filter: brightness(0.95); }
         @media (max-width: 640px) { .tp-att-cards { grid-template-columns: repeat(2, 1fr); } }
     </style>`);
 
@@ -135,6 +149,24 @@ function askForPassword(message) {
 }
 function tpEsc(v) {
     return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Turns a local Zimbabwe number (0781968103) into international digits (263781968103)
+function tpIntlPhone(raw) {
+    let d = String(raw || '').replace(/\D/g, '');
+    if (d.startsWith('00')) d = d.slice(2);
+    else if (d.startsWith('0')) d = '263' + d.slice(1);
+    return d.length >= 9 ? d : '';
+}
+
+// Small Call / WhatsApp buttons for a phone number ('' if the number is unusable)
+function tpPhoneActions(raw) {
+    const n = tpIntlPhone(raw);
+    if (!n) return '';
+    return `<span class="tp-contact-actions">
+        <a class="tp-contact-btn" href="tel:+${n}" title="Call">Call</a>
+        <a class="tp-contact-btn wa" href="https://wa.me/${n}" target="_blank" rel="noopener" title="Chat on WhatsApp">WhatsApp</a>
+    </span>`;
 }
 
 // No 0/O or 1/l/I so a password read aloud isn't misread
@@ -204,6 +236,8 @@ window.openTeacherModal = function (editId = null, returnToClassModal = false) {
             document.getElementById('teacherDepartmentInput').value = t.department || '';
             document.getElementById('teacherStatusSelect').value = t.status || 'Active';
             document.getElementById('teacherRegDateInput').value = t.registrationDate || '';
+            document.getElementById('teacherEmergencyNameInput').value = t.emergencyName || '';
+            document.getElementById('teacherEmergencyPhoneInput').value = t.emergencyPhone || '';
         }
     }
 };
@@ -227,7 +261,9 @@ document.addEventListener('submit', function (e) {
         address: document.getElementById('teacherAddressInput').value.trim(),
         department: document.getElementById('teacherDepartmentInput').value.trim(),
         status: document.getElementById('teacherStatusSelect').value || 'Active',
-        registrationDate: document.getElementById('teacherRegDateInput').value
+        registrationDate: document.getElementById('teacherRegDateInput').value,
+        emergencyName: document.getElementById('teacherEmergencyNameInput').value.trim(),
+        emergencyPhone: document.getElementById('teacherEmergencyPhoneInput').value.trim()
     };
     if (!name) return showNotification('Teacher name is required', 'warning');
 
@@ -362,6 +398,7 @@ function renderTeacherPersonalPanel(t) {
     const reg = t.registrationDate
         ? new Date(t.registrationDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
     const item = (l, v) => `<div class="profile-detail-item"><div class="pd-label">${l}</div><div class="pd-value">${tpEsc(v || '—')}</div></div>`;
+    const phoneItem = (l, v) => `<div class="profile-detail-item"><div class="pd-label">${l}</div><div class="pd-value">${tpEsc(v || '—')}${tpPhoneActions(v)}</div></div>`;
     document.getElementById('tpPanel-personal').innerHTML = `
         <div class="profile-header">
             <div class="profile-avatar">${tpEsc((t.name || '?').trim().charAt(0).toUpperCase())}</div>
@@ -376,9 +413,9 @@ function renderTeacherPersonalPanel(t) {
             </div>
         </div>
         <div class="profile-detail-grid">
-            ${item('Full Name', t.name)}${item('Gender', t.gender)}${item('Phone Number', t.phone)}
+            ${item('Full Name', t.name)}${item('Gender', t.gender)}${phoneItem('Phone Number', t.phone)}
             ${item('Email', t.email)}${item('Home Address', t.address)}${item('Employment Status', status)}
-            ${item('Registration Date', reg)}
+            ${item('Registration Date', reg)}${item('Emergency Contact', t.emergencyName)}${phoneItem('Emergency Phone', t.emergencyPhone)}
         </div>`;
 }
 
