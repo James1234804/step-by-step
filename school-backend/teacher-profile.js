@@ -11,7 +11,8 @@
 //     add column if not exists address text default '',
 //     add column if not exists registration_date text default '',
 //     add column if not exists emergency_contact_name text default '',
-//     add column if not exists emergency_contact_phone text default '';
+//     add column if not exists emergency_contact_phone text default '',
+//     add column if not exists employee_number text default '';
 (function () {
     const origFor = window.mapRowForSupabase;
     const origFrom = window.mapRowFromSupabase;
@@ -23,6 +24,7 @@
             row.registration_date = item.registrationDate || '';
             row.emergency_contact_name = item.emergencyName || '';
             row.emergency_contact_phone = item.emergencyPhone || '';
+            row.employee_number = item.employeeNumber || '';
         }
         return row;
     };
@@ -34,6 +36,7 @@
             obj.registrationDate = row.registration_date || '';
             obj.emergencyName = row.emergency_contact_name || '';
             obj.emergencyPhone = row.emergency_contact_phone || '';
+            obj.employeeNumber = row.employee_number || '';
         }
         return obj;
     };
@@ -59,6 +62,8 @@
                 <input type="text" id="teacherEmergencyNameInput" placeholder="e.g. spouse, parent or relative"></div>
             <div class="form-row"><label>Emergency Contact Phone</label>
                 <input type="tel" id="teacherEmergencyPhoneInput" placeholder="e.g. 0771234567"></div>
+            <div class="form-row"><label>Staff / Employee Number (optional)</label>
+                <input type="text" id="teacherEmployeeNumberInput" placeholder="Only if the school issues staff numbers"></div>
         `);
     }
 
@@ -88,6 +93,16 @@
         .tp-contact-btn { display: inline-block; padding: 0.12rem 0.6rem; border-radius: 999px; font-size: 0.74rem; font-weight: 600; text-decoration: none; background: var(--primary-tint-strong, #ffedd5); color: var(--primary-color, #ea580c); }
         .tp-contact-btn.wa { background: #dcfce7; color: #15803d; }
         .tp-contact-btn:hover { filter: brightness(0.95); }
+        .tp-nci { background: #fff; border: 1px solid var(--border-color, #e2e8f0); border-radius: 14px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+        .tp-nci-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.6rem; }
+        .tp-nci-head h4 { margin: 0; font-size: 1rem; }
+        .tp-nci-count { background: #fee2e2; color: #b91c1c; font-size: 0.78rem; font-weight: 700; padding: 0.1rem 0.6rem; border-radius: 999px; }
+        .tp-nci-list { max-height: 220px; overflow-y: auto; }
+        .tp-nci-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0; border-top: 1px solid var(--border-color, #e2e8f0); }
+        .tp-nci-name { background: none; border: none; padding: 0; font: inherit; font-weight: 600; cursor: pointer; color: inherit; text-align: left; }
+        .tp-nci-name:hover { color: var(--primary-color, #ea580c); }
+        .tp-nci-dept { color: var(--muted-text); font-size: 0.82rem; margin-left: 0.5rem; }
+        .tp-nci-ok { color: var(--success-color, #16a34a); font-weight: 600; font-size: 0.92rem; }
         @media (max-width: 640px) { .tp-att-cards { grid-template-columns: repeat(2, 1fr); } }
     </style>`);
 
@@ -155,15 +170,35 @@ function tpPhoneActions(raw) {
     </span>`;
 }
 
-// Returns an error message if another teacher already uses this email or phone, else ''
+// Next free system ID (T001, T002, ...). Uses the highest number ever seen, including
+// IDs that only remain in attendance records, so a deleted teacher's ID is never reused.
+function generateTeacherId() {
+    const teachers = getData('teachers');
+    const attendance = getData(TEACHER_ATTENDANCE_KEY);
+    const used = [
+        ...(Array.isArray(teachers) ? teachers.map(t => t.id) : []),
+        ...(Array.isArray(attendance) ? attendance.map(r => r.teacherId || r.teacher_id) : [])
+    ];
+    let max = 0;
+    used.forEach(id => {
+        const m = /^T(\d+)$/.exec(String(id || ''));
+        if (m) max = Math.max(max, Number(m[1]));
+    });
+    return 'T' + String(max + 1).padStart(3, '0');
+}
+
+// Returns an error message if another teacher already uses this email, phone or staff number, else ''
+
 function findDuplicateTeacher(fields, excludeId) {
     const all = getData('teachers');
     const others = (Array.isArray(all) ? all : []).filter(t => t.id !== excludeId);
     const email = (fields.email || '').trim().toLowerCase();
     const phone = tpIntlPhone(fields.phone); // 0781968103 and +263781968103 count as the same number
+    const staffNo = (fields.employeeNumber || '').trim().toLowerCase();
     for (const t of others) {
         if (email && (t.email || '').trim().toLowerCase() === email) return `That email is already used by ${t.name} (${t.id}).`;
         if (phone && tpIntlPhone(t.phone) === phone) return `That phone number is already used by ${t.name} (${t.id}).`;
+        if (staffNo && (t.employeeNumber || '').trim().toLowerCase() === staffNo) return `That staff number is already used by ${t.name} (${t.id}).`;
     }
     return '';
 }
@@ -235,6 +270,7 @@ window.openTeacherModal = function (editId = null, returnToClassModal = false) {
             document.getElementById('teacherRegDateInput').value = t.registrationDate || '';
             document.getElementById('teacherEmergencyNameInput').value = t.emergencyName || '';
             document.getElementById('teacherEmergencyPhoneInput').value = t.emergencyPhone || '';
+            document.getElementById('teacherEmployeeNumberInput').value = t.employeeNumber || '';
         }
     }
 };
@@ -260,7 +296,8 @@ document.addEventListener('submit', function (e) {
         status: document.getElementById('teacherStatusSelect').value || 'Active',
         registrationDate: document.getElementById('teacherRegDateInput').value,
         emergencyName: document.getElementById('teacherEmergencyNameInput').value.trim(),
-        emergencyPhone: document.getElementById('teacherEmergencyPhoneInput').value.trim()
+        emergencyPhone: document.getElementById('teacherEmergencyPhoneInput').value.trim(),
+        employeeNumber: document.getElementById('teacherEmployeeNumberInput').value.trim()
     };
     if (!name) return showNotification('Teacher name is required', 'warning');
     const duplicate = findDuplicateTeacher(fields, editId);
@@ -280,7 +317,7 @@ document.addEventListener('submit', function (e) {
         showNotification('Teacher updated successfully!', 'success');
         addActivity('✏️', `Teacher updated: ${name}`);
     } else {
-        const nextId = 'T' + String(teachers.length + 1).padStart(3, '0');
+        const nextId = generateTeacherId();
         savedTeacher = { id: nextId, ...fields };
         teachers.push(savedTeacher);
         if (!saveData('teachers', teachers)) return showNotification('Error saving teacher', 'error');
@@ -401,7 +438,7 @@ function renderTeacherPersonalPanel(t) {
         <div class="profile-detail-grid">
             ${item('Full Name', t.name)}${item('Gender', t.gender)}${phoneItem('Phone Number', t.phone)}
             ${item('Email', t.email)}${item('Home Address', t.address)}${item('Employment Status', status)}
-            ${item('Registration Date', reg)}${item('Emergency Contact', t.emergencyName)}${phoneItem('Emergency Phone', t.emergencyPhone)}
+            ${item('Registration Date', reg)}${item('Emergency Contact', t.emergencyName)}${phoneItem('Emergency Phone', t.emergencyPhone)}${t.employeeNumber ? item('Staff Number', t.employeeNumber) : ''}
         </div>`;
 }
 
@@ -559,6 +596,48 @@ function renderTeacherAttendancePanel(t, year) {
 function changeTeacherAttendanceYear(teacherId, year) {
     const t = (getData('teachers') || []).find(x => x.id === teacherId);
     if (t) renderTeacherAttendancePanel(t, year);
+}
+
+// "Not checked in today" panel, shown above the Teachers table on school days.
+// Only active teachers are listed; teachers who checked in (on time or late) drop off.
+function renderNotCheckedInPanel() {
+    const tbody = document.getElementById('teachersTableBody');
+    if (!tbody) return;
+    const table = tbody.closest('table') || tbody;
+    const anchor = table.parentElement;
+    let panel = document.getElementById('tpNotCheckedIn');
+
+    const now = new Date(), todayKey = tpDateKey(now), dow = now.getDay();
+    const schoolDay = dow >= 1 && dow <= 5 && !TEACHER_HOLIDAYS.includes(todayKey);
+    const rawTeachers = getData('teachers');
+    const teachers = (Array.isArray(rawTeachers) ? rawTeachers : []).filter(t => (t.status || 'Active') !== 'Inactive');
+    if (!schoolDay || !teachers.length) { if (panel) panel.remove(); return; }
+
+    const rawAtt = getData(TEACHER_ATTENDANCE_KEY);
+    const checkedIn = new Set((Array.isArray(rawAtt) ? rawAtt : [])
+        .filter(r => { const d = tpParseDate(r.date); return d && tpDateKey(d) === todayKey; })
+        .map(r => r.teacherId || r.teacher_id));
+    const missing = teachers.filter(t => !checkedIn.has(t.id));
+
+    const body = missing.length
+        ? `<div class="tp-nci-list">${missing.map(t => `
+            <div class="tp-nci-row">
+                <div><button class="tp-nci-name" onclick="openTeacherProfile('${tpEsc(t.id)}', 'attendance')">${tpEsc(t.name)}</button>
+                    <span class="tp-nci-dept">${tpEsc(t.department || '')}</span></div>
+                ${tpPhoneActions(t.phone)}
+            </div>`).join('')}</div>`
+        : `<div class="tp-nci-ok">✓ Everyone has checked in today</div>`;
+
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'tpNotCheckedIn';
+        panel.className = 'tp-nci';
+        anchor.parentNode.insertBefore(panel, anchor);
+    }
+    panel.innerHTML = `
+        <div class="tp-nci-head"><h4>Not checked in today</h4>
+            ${missing.length ? `<span class="tp-nci-count">${missing.length}</span>` : ''}</div>
+        ${body}`;
 }
 
 // ---------- Credential popup (create password / create login / change username) ----------
@@ -736,4 +815,18 @@ document.addEventListener('click', function (e) {
 
 // Teachers table was already drawn by school.js before this file loaded,
 // so redraw it with the new row layout.
+// Keep the "not checked in" panel in step with the table, and refresh it every minute
+(function () {
+    const original = window.loadTeachersFromStorage;
+    if (typeof original === 'function') {
+        window.loadTeachersFromStorage = function () {
+            const result = original.apply(this, arguments);
+            renderNotCheckedInPanel();
+            return result;
+        };
+    }
+    setInterval(renderNotCheckedInPanel, 60000);
+})();
+
 if (typeof loadTeachersFromStorage === 'function') loadTeachersFromStorage();
+renderNotCheckedInPanel();
