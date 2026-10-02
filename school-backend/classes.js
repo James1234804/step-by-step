@@ -1,4 +1,4 @@
-// ============================================================
+ // ============================================================
 // classes.js — Class Management
 // Load order in the dashboard HTML (after the supabase-js tag):
 //   <script src="school.js"></script>
