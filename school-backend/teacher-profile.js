@@ -93,16 +93,16 @@
         .tp-contact-btn { display: inline-block; padding: 0.12rem 0.6rem; border-radius: 999px; font-size: 0.74rem; font-weight: 600; text-decoration: none; background: var(--primary-tint-strong, #ffedd5); color: var(--primary-color, #ea580c); }
         .tp-contact-btn.wa { background: #dcfce7; color: #15803d; }
         .tp-contact-btn:hover { filter: brightness(0.95); }
-        .tp-nci { background: #fff; border: 1px solid var(--border-color, #e2e8f0); border-radius: 14px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
-        .tp-nci-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.6rem; }
-        .tp-nci-head h4 { margin: 0; font-size: 1rem; }
+        .tp-nci-btn { display: inline-flex; align-items: center; gap: 0.55rem; padding: 0.8rem 1.1rem; background: #fff; border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; font: inherit; font-weight: 600; white-space: nowrap; cursor: pointer; color: inherit; }
+        .tp-nci-btn:hover { border-color: var(--primary-color, #ea580c); }
+        .tp-nci-btn.ok { color: var(--success-color, #16a34a); }
         .tp-nci-count { background: #fee2e2; color: #b91c1c; font-size: 0.78rem; font-weight: 700; padding: 0.1rem 0.6rem; border-radius: 999px; }
-        .tp-nci-list { max-height: 220px; overflow-y: auto; }
-        .tp-nci-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0; border-top: 1px solid var(--border-color, #e2e8f0); }
+        .tp-nci-list { max-height: 360px; overflow-y: auto; }
+        .tp-nci-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.7rem 0; border-top: 1px solid var(--border-color, #e2e8f0); }
         .tp-nci-name { background: none; border: none; padding: 0; font: inherit; font-weight: 600; cursor: pointer; color: inherit; text-align: left; }
         .tp-nci-name:hover { color: var(--primary-color, #ea580c); }
         .tp-nci-dept { color: var(--muted-text); font-size: 0.82rem; margin-left: 0.5rem; }
-        .tp-nci-ok { color: var(--success-color, #16a34a); font-weight: 600; font-size: 0.92rem; }
+        .tp-nci-ok { color: var(--success-color, #16a34a); font-weight: 600; padding: 0.5rem 0; }
         @media (max-width: 640px) { .tp-att-cards { grid-template-columns: repeat(2, 1fr); } }
     </style>`);
 
@@ -598,46 +598,92 @@ function changeTeacherAttendanceYear(teacherId, year) {
     if (t) renderTeacherAttendancePanel(t, year);
 }
 
-// "Not checked in today" panel, shown above the Teachers table on school days.
-// Only active teachers are listed; teachers who checked in (on time or late) drop off.
-function renderNotCheckedInPanel() {
-    const tbody = document.getElementById('teachersTableBody');
-    if (!tbody) return;
-    const table = tbody.closest('table') || tbody;
-    const anchor = table.parentElement;
-    let panel = document.getElementById('tpNotCheckedIn');
-
+// "Not checked in" button next to the department filter. It opens a list of the
+// active teachers who have not checked in today (school days only).
+function getTeachersNotCheckedIn() {
     const now = new Date(), todayKey = tpDateKey(now), dow = now.getDay();
     const schoolDay = dow >= 1 && dow <= 5 && !TEACHER_HOLIDAYS.includes(todayKey);
     const rawTeachers = getData('teachers');
     const teachers = (Array.isArray(rawTeachers) ? rawTeachers : []).filter(t => (t.status || 'Active') !== 'Inactive');
-    if (!schoolDay || !teachers.length) { if (panel) panel.remove(); return; }
+    if (!schoolDay || !teachers.length) return null;
 
     const rawAtt = getData(TEACHER_ATTENDANCE_KEY);
     const checkedIn = new Set((Array.isArray(rawAtt) ? rawAtt : [])
         .filter(r => { const d = tpParseDate(r.date); return d && tpDateKey(d) === todayKey; })
         .map(r => r.teacherId || r.teacher_id));
-    const missing = teachers.filter(t => !checkedIn.has(t.id));
+    return teachers.filter(t => !checkedIn.has(t.id));
+}
 
-    const body = missing.length
+function ensureNotCheckedInUI() {
+    let btn = document.getElementById('tpNciBtn');
+    if (btn) return btn;
+    const tbody = document.getElementById('teachersTableBody');
+    if (!tbody) return null;
+
+    btn = document.createElement('button');
+    btn.id = 'tpNciBtn';
+    btn.type = 'button';
+    btn.addEventListener('click', openNotCheckedInList);
+
+    // Sit beside the department filter; fall back to just above the table
+    const search = document.querySelector('input[placeholder*="Search teachers"]');
+    let row = search;
+    while (row && !row.querySelector('select')) row = row.parentElement;
+    const select = row && (row.querySelector('select[id*="epartment"]') || row.querySelector('select'));
+    if (select) select.insertAdjacentElement('afterend', btn);
+    else {
+        const anchor = (tbody.closest('table') || tbody).parentElement;
+        anchor.parentNode.insertBefore(btn, anchor);
+    }
+
+    document.body.insertAdjacentHTML('beforeend', `
+        <div id="tpNciModal" class="modal" aria-hidden="true">
+            <div class="modal-content" style="max-width:520px;">
+                <div class="modal-header">
+                    <h3>Not checked in today</h3>
+                    <button class="modal-close" onclick="closeNotCheckedInList()">✕</button>
+                </div>
+                <div id="tpNciBody"></div>
+            </div>
+        </div>`);
+    const modal = document.getElementById('tpNciModal');
+    modal.addEventListener('click', e => { if (e.target === modal) closeNotCheckedInList(); });
+    return btn;
+}
+
+function fillNotCheckedInList(missing) {
+    const body = document.getElementById('tpNciBody');
+    if (!body) return;
+    body.innerHTML = (missing && missing.length)
         ? `<div class="tp-nci-list">${missing.map(t => `
             <div class="tp-nci-row">
-                <div><button class="tp-nci-name" onclick="openTeacherProfile('${tpEsc(t.id)}', 'attendance')">${tpEsc(t.name)}</button>
+                <div><button class="tp-nci-name" onclick="closeNotCheckedInList(); openTeacherProfile('${tpEsc(t.id)}', 'attendance')">${tpEsc(t.name)}</button>
                     <span class="tp-nci-dept">${tpEsc(t.department || '')}</span></div>
                 ${tpPhoneActions(t.phone)}
             </div>`).join('')}</div>`
         : `<div class="tp-nci-ok">✓ Everyone has checked in today</div>`;
+}
 
-    if (!panel) {
-        panel = document.createElement('div');
-        panel.id = 'tpNotCheckedIn';
-        panel.className = 'tp-nci';
-        anchor.parentNode.insertBefore(panel, anchor);
-    }
-    panel.innerHTML = `
-        <div class="tp-nci-head"><h4>Not checked in today</h4>
-            ${missing.length ? `<span class="tp-nci-count">${missing.length}</span>` : ''}</div>
-        ${body}`;
+function openNotCheckedInList() {
+    fillNotCheckedInList(getTeachersNotCheckedIn());
+    document.getElementById('tpNciModal')?.setAttribute('aria-hidden', 'false');
+}
+
+function closeNotCheckedInList() {
+    document.getElementById('tpNciModal')?.setAttribute('aria-hidden', 'true');
+}
+
+function renderNotCheckedIn() {
+    const btn = ensureNotCheckedInUI();
+    if (!btn) return;
+    const missing = getTeachersNotCheckedIn();
+    if (missing === null) { btn.style.display = 'none'; closeNotCheckedInList(); return; }
+    btn.style.display = '';
+    btn.className = 'tp-nci-btn' + (missing.length ? '' : ' ok');
+    btn.innerHTML = missing.length
+        ? `Not checked in <span class="tp-nci-count">${missing.length}</span>`
+        : '✓ All checked in';
+    if (document.getElementById('tpNciModal')?.getAttribute('aria-hidden') === 'false') fillNotCheckedInList(missing);
 }
 
 // ---------- Credential popup (create password / create login / change username) ----------
@@ -815,18 +861,18 @@ document.addEventListener('click', function (e) {
 
 // Teachers table was already drawn by school.js before this file loaded,
 // so redraw it with the new row layout.
-// Keep the "not checked in" panel in step with the table, and refresh it every minute
+// Keep the "not checked in" button in step with the table, and refresh it every minute
 (function () {
     const original = window.loadTeachersFromStorage;
     if (typeof original === 'function') {
         window.loadTeachersFromStorage = function () {
             const result = original.apply(this, arguments);
-            renderNotCheckedInPanel();
+            renderNotCheckedIn();
             return result;
         };
     }
-    setInterval(renderNotCheckedInPanel, 60000);
+    setInterval(renderNotCheckedIn, 60000);
 })();
 
 if (typeof loadTeachersFromStorage === 'function') loadTeachersFromStorage();
-renderNotCheckedInPanel();
+renderNotCheckedIn();
