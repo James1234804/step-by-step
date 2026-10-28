@@ -55,6 +55,12 @@ function cmFormList(classes) {
 // Layout: one tab per Form (Form 1 ... Form 6) with a search box, and a compact
 // table underneath. Nine classes in a Form is nine neat rows, not nine big cards,
 // and only one Form is on screen at a time.
+function cmInitials(name) {
+    const words = String(name || '').split(/\s+/)
+        .filter(w => w && !/^(mr|mrs|ms|miss|dr|prof)\.?$/i.test(w));
+    return words.slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
+}
+
 function renderClasses() {
     const container = document.getElementById('classesContainer');
     if (!container) return;
@@ -65,6 +71,8 @@ function renderClasses() {
     const formFilter = document.getElementById('formLevelFilter');
     if (formFilter) formFilter.style.display = 'none';
 
+    // The old card grid laid its children out in columns; the board needs the full width.
+    container.style.display = 'block';
     container.innerHTML = '';
     renderClassOverview();
 
@@ -94,17 +102,22 @@ function renderClasses() {
         </button>`).join('');
 
     container.innerHTML = `
-        ${chip}
-        <div class="cm-tools">
-            <div class="cm-tabs">${tabs}</div>
-            <input id="cmClassSearch" class="cm-search" type="search"
-                placeholder="Search all classes..." value="${cmEsc(window._classSearch || '')}">
-        </div>
-        <div id="cmClassTable"></div>`;
+        <div class="cm-board">
+            ${chip}
+            <div class="cm-tools">
+                <div class="cm-tabs">${tabs}</div>
+                <label class="cm-search-wrap">
+                    <span data-lucide="search"></span>
+                    <input id="cmClassSearch" class="cm-search" type="search"
+                        placeholder="Search class, teacher or room" value="${cmEsc(window._classSearch || '')}">
+                </label>
+            </div>
+            <div id="cmClassTable"></div>
+        </div>`;
     renderClassTable();
 }
 
-// Fills only the table, so typing in the search box never loses focus.
+// Fills only the table card, so typing in the search box never loses focus.
 function renderClassTable() {
     const holder = document.getElementById('cmClassTable');
     if (!holder) return;
@@ -134,35 +147,58 @@ function renderClassTable() {
     document.querySelectorAll('.cm-tab').forEach(t =>
         t.classList.toggle('active', !searching && t.dataset.id === window._classFormView));
 
+    const totalStudents = list.reduce((sum, c) => sum + (counts[c.name] || 0), 0);
+    const view = window._classFormView;
+    const title = search ? 'Search results'
+        : quick === 'noTeacher' ? 'Classes without a teacher'
+        : quick === 'empty' ? 'Empty classes'
+        : (view === 'Unassigned' ? 'Unassigned classes' : 'Form ' + cmEsc(view));
+    const sub = `${list.length} ${list.length === 1 ? 'class' : 'classes'} · ${totalStudents} student${totalStudents === 1 ? '' : 's'}`;
+
+    let body;
     if (list.length === 0) {
-        holder.innerHTML = '<p class="cm-empty">No classes found.</p>';
-        return;
+        body = '<div class="cm-empty">No classes found.</div>';
+    } else {
+        const rows = list.map(c => {
+            const teacher = resolveClassTeacherName(c);
+            const n = counts[c.name] || 0;
+            const badge = cmEsc(String(c.name).replace(/^Form\s*/i, '').replace('-', ''));
+            const id = cmEsc(c.id);
+            return `<tr>
+                <td data-label="Class">
+                    <button type="button" class="cm-class-link" data-class-action="view" data-id="${id}">
+                        <span class="cm-badge">${badge}</span>
+                        <span class="cm-class-name">${cmEsc(c.name)}</span>
+                    </button>
+                </td>
+                <td data-label="Class Teacher">${teacher === '—'
+                    ? '<span class="cm-pill warn">No teacher</span>'
+                    : `<span class="cm-person"><span class="cm-avatar">${cmEsc(cmInitials(teacher))}</span>${cmEsc(teacher)}</span>`}</td>
+                <td data-label="Room">${c.room ? cmEsc(c.room) : '<span class="cm-dash">—</span>'}</td>
+                <td data-label="Students">${n
+                    ? `<span class="cm-pill">${n} student${n === 1 ? '' : 's'}</span>`
+                    : '<span class="cm-pill muted">Empty</span>'}</td>
+                <td class="cm-actions">
+                    <div class="table-actions">
+                        <button type="button" class="icon-action-btn action-view" title="View students" aria-label="View students" data-class-action="view" data-id="${id}"><span data-lucide="eye"></span></button>
+                        <button type="button" class="icon-action-btn action-edit" title="Edit class" aria-label="Edit class" data-class-action="edit" data-id="${id}"><span data-lucide="pencil"></span></button>
+                        <button type="button" class="icon-action-btn action-delete" title="Delete class" aria-label="Delete class" data-class-action="delete" data-id="${id}"><span data-lucide="trash-2"></span></button>
+                    </div>
+                </td>
+            </tr>`;
+        }).join('');
+        body = `<table class="cm-table">
+            <thead><tr><th>Class</th><th>Class Teacher</th><th>Room</th><th>Students</th><th class="cm-th-actions">Actions</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
     }
 
-    const totalStudents = list.reduce((sum, c) => sum + (counts[c.name] || 0), 0);
-    const rows = list.map(c => {
-        const teacher = resolveClassTeacherName(c);
-        return `<tr>
-            <td><strong>${cmEsc(c.name)}</strong></td>
-            <td>${teacher === '—' ? '<span class="cm-muted">No teacher</span>' : cmEsc(teacher)}</td>
-            <td>${cmEsc(c.room || '-')}</td>
-            <td>${counts[c.name] || 0}</td>
-            <td class="cm-actions">
-                <button class="btn-small btn-info" data-class-action="view" data-id="${cmEsc(c.id)}">View</button>
-                <button class="btn-small btn-warning" data-class-action="edit" data-id="${cmEsc(c.id)}">Edit</button>
-                <button class="btn-small btn-danger" data-class-action="delete" data-id="${cmEsc(c.id)}">Delete</button>
-            </td>
-        </tr>`;
-    }).join('');
-
     holder.innerHTML = `
-        <div class="cm-table-wrap">
-            <table class="cm-table">
-                <thead><tr><th>Class</th><th>Class Teacher</th><th>Room</th><th>Students</th><th></th></tr></thead>
-                <tbody>${rows}</tbody>
-            </table>
-        </div>
-        <p class="cm-summary">${list.length} ${list.length === 1 ? 'class' : 'classes'} · ${totalStudents} student${totalStudents === 1 ? '' : 's'}</p>`;
+        <div class="cm-card">
+            <div class="cm-card-head"><h3>${title}</h3><span>${sub}</span></div>
+            ${body}
+        </div>`;
+    if (window.lucide) lucide.createIcons();
 }
 
 function filterClassesByFormLevel() {
@@ -481,6 +517,7 @@ function getClassOverviewStats() {
 
     return {
         totalClasses: classes.length,
+        formCount: new Set(classes.map(c => String(c.formLevel || ''))).size,
         studentsInClasses: inClasses.length,
         activeInClasses,
         unplaced,
@@ -522,24 +559,51 @@ function injectClassOverviewStyles() {
         .cm-ay-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.1rem; }
         .cm-ay-box { border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; padding: 0.8rem 1rem; background: var(--light-bg, #f8fafc); }
         .cm-ay-box .cm-stat-value { font-size: 1.4rem; }
+        .cm-board { width: 100%; }
         .cm-tools { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
         .cm-tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-        .cm-tab { border: 1px solid var(--border-color, #e2e8f0); background: #fff; border-radius: 999px; padding: 0.45rem 1rem; font: inherit; font-weight: 600; font-size: 0.9rem; cursor: pointer; color: #475569; }
-        .cm-tab span { margin-left: 0.35rem; background: #f1f5f9; border-radius: 999px; padding: 0.05rem 0.5rem; font-size: 0.78rem; }
-        .cm-tab:hover { border-color: #ea580c; }
-        .cm-tab.active { background: #ea580c; border-color: #ea580c; color: #fff; }
+        .cm-tab { display: inline-flex; align-items: center; gap: 0.4rem; border: 1px solid var(--border-color, #e2e8f0); background: #fff; border-radius: 999px; padding: 0.45rem 0.95rem; font: inherit; font-weight: 600; font-size: 0.9rem; cursor: pointer; color: #475569; transition: all 0.15s; }
+        .cm-tab span { background: #f1f5f9; border-radius: 999px; padding: 0.05rem 0.5rem; font-size: 0.78rem; }
+        .cm-tab:hover { border-color: #ea580c; color: #ea580c; }
+        .cm-tab.active { background: #ea580c; border-color: #ea580c; color: #fff; box-shadow: 0 2px 8px rgba(234, 88, 12, 0.25); }
         .cm-tab.active span { background: rgba(255, 255, 255, 0.25); color: #fff; }
-        .cm-search { min-width: 220px; padding: 0.55rem 0.9rem; border: 1px solid var(--border-color, #e2e8f0); border-radius: 10px; font: inherit; font-size: 0.9rem; background: #fff; }
-        .cm-table-wrap { overflow-x: auto; background: #fff; border: 1px solid var(--border-color, #e2e8f0); border-radius: 14px; }
-        .cm-table { width: 100%; border-collapse: collapse; }
-        .cm-table th { text-align: left; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #64748b; padding: 0.75rem 1rem; background: #f8fafc; border-bottom: 1px solid var(--border-color, #e2e8f0); }
-        .cm-table td { padding: 0.7rem 1rem; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
-        .cm-table tr:last-child td { border-bottom: none; }
-        .cm-table tbody tr:hover { background: #fff7ed; }
-        .cm-actions { white-space: nowrap; text-align: right; }
-        .cm-muted { color: #b45309; font-size: 0.88rem; }
-        .cm-summary { margin: 0.6rem 0.25rem 0; color: #64748b; font-size: 0.85rem; }
-        .cm-empty { padding: 1rem; color: #64748b; }
+        .cm-search-wrap { position: relative; display: block; flex: 0 1 320px; min-width: 220px; }
+        .cm-search-wrap > span { position: absolute; left: 0.8rem; top: 50%; transform: translateY(-50%); color: #94a3b8; display: flex; pointer-events: none; }
+        .cm-search-wrap svg { width: 16px; height: 16px; }
+        .cm-search { width: 100%; box-sizing: border-box; padding: 0.6rem 0.9rem 0.6rem 2.3rem; border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; font: inherit; font-size: 0.9rem; background: #fff; }
+        .cm-search:focus { outline: none; border-color: #ea580c; box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12); }
+        .cm-card { width: 100%; background: #fff; border: 1px solid var(--border-color, #e2e8f0); border-radius: 16px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); overflow: hidden; }
+        .cm-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: 1rem 1.25rem; border-bottom: 1px solid #f1f5f9; }
+        .cm-card-head h3 { margin: 0; font-size: 1.05rem; color: #0f172a; }
+        .cm-card-head span { color: #64748b; font-size: 0.85rem; }
+        .cm-table { width: 100%; border-collapse: collapse; table-layout: auto; }
+        .cm-table th { text-align: left; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; padding: 0.7rem 1.25rem; background: #f8fafc; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
+        .cm-table td { padding: 0.8rem 1.25rem; border-bottom: 1px solid #f1f5f9; vertical-align: middle; font-size: 0.93rem; }
+        .cm-table tbody tr:last-child td { border-bottom: none; }
+        .cm-table tbody tr:hover { background: #fffaf5; }
+        .cm-th-actions, .cm-actions { text-align: right; width: 1%; white-space: nowrap; }
+        .cm-actions .table-actions { display: inline-flex; gap: 0.35rem; }
+        .cm-class-link { display: inline-flex; align-items: center; gap: 0.75rem; border: none; background: none; padding: 0; font: inherit; cursor: pointer; color: inherit; text-align: left; }
+        .cm-class-link:hover .cm-class-name { color: #ea580c; }
+        .cm-badge { flex: none; width: 40px; height: 40px; border-radius: 12px; background: #fff7ed; color: #ea580c; font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; }
+        .cm-class-name { font-weight: 600; white-space: nowrap; }
+        .cm-person { display: inline-flex; align-items: center; gap: 0.6rem; }
+        .cm-avatar { flex: none; width: 30px; height: 30px; border-radius: 50%; background: #e2e8f0; color: #475569; font-size: 0.72rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+        .cm-pill { display: inline-block; padding: 0.2rem 0.65rem; border-radius: 999px; background: #dcfce7; color: #15803d; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+        .cm-pill.muted { background: #f1f5f9; color: #64748b; }
+        .cm-pill.warn { background: #fef3c7; color: #b45309; }
+        .cm-dash { color: #94a3b8; }
+        .cm-empty { padding: 2rem 1.25rem; color: #64748b; text-align: center; }
+        @media (max-width: 700px) {
+            .cm-search-wrap { flex: 1 1 100%; }
+            .cm-table thead { display: none; }
+            .cm-table, .cm-table tbody, .cm-table tr, .cm-table td { display: block; width: 100%; box-sizing: border-box; }
+            .cm-table tr { padding: 0.75rem 1rem; border-bottom: 1px solid #f1f5f9; }
+            .cm-table td { border: none; padding: 0.3rem 0; display: flex; justify-content: space-between; align-items: center; gap: 1rem; width: 100%; }
+            .cm-table td::before { content: attr(data-label); color: #64748b; font-size: 0.78rem; }
+            .cm-table td.cm-actions { width: 100%; justify-content: flex-end; }
+            .cm-table td.cm-actions::before { content: none; }
+        }
         @media (max-width: 1100px) { .cm-stats, .cm-minis { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 560px) { .cm-stats, .cm-minis, .cm-ay-summary { grid-template-columns: 1fr; } }
     </style>`);
@@ -590,7 +654,7 @@ function renderClassOverview() {
 
     overview.innerHTML = `
         <div class="cm-stats">
-            ${stat('layout-grid', 'orange', 'Total Classes', s.totalClasses.toLocaleString(), '')}
+            ${stat('layout-grid', 'orange', 'Total Classes', s.totalClasses.toLocaleString(), `Across ${s.formCount} form${s.formCount === 1 ? '' : 's'}`)}
             ${stat('users', 'green', 'Students in Classes', s.studentsInClasses.toLocaleString(), `${s.activeInClasses.toLocaleString()} active`)}
             ${stat('user-minus', 'amber', 'Not in a Class', s.unplaced.toLocaleString(), s.unplaced ? 'Need a class' : 'Everyone placed ✓')}
             ${stat('calendar-check', 'slate', 'Active Year', s.activeYear, 'Current academic year')}
