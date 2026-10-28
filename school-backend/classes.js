@@ -38,101 +38,131 @@ function loadClassesFromStorage() {
     populateClassFilter();
 }
 
-function classCardHtml(cls, count) {
-    return `
-        <div class="class-header">
-            <h2>${cmEsc(cls.name)}</h2>
-            <span class="class-badge">${count} Student${count === 1 ? '' : 's'}</span>
-        </div>
-        <div class="class-details">
-            <p><strong>Class Teacher:</strong> ${cmEsc(resolveClassTeacherName(cls))}</p>
-            <p><strong>Room:</strong> ${cmEsc(cls.room || '-')}</p>
-        </div>
-        <div class="class-actions">
-            <button class="btn-small btn-info" data-class-action="view" data-id="${cmEsc(cls.id)}">View Details</button>
-            <button class="btn-small btn-warning" data-class-action="edit" data-id="${cmEsc(cls.id)}">Edit</button>
-            <button class="btn-small btn-danger" data-class-action="delete" data-id="${cmEsc(cls.id)}">Delete</button>
-        </div>`;
+function cmSortedClasses(list) {
+    return list.slice().sort((a, b) =>
+        String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
 }
 
+function cmFormList(classes) {
+    const set = new Set(classes.map(c => String(c.formLevel || 'Unassigned')));
+    return Array.from(set).sort((a, b) => {
+        if (a === 'Unassigned') return 1;
+        if (b === 'Unassigned') return -1;
+        return parseInt(a) - parseInt(b);
+    });
+}
+
+// Layout: one tab per Form (Form 1 ... Form 6) with a search box, and a compact
+// table underneath. Nine classes in a Form is nine neat rows, not nine big cards,
+// and only one Form is on screen at a time.
 function renderClasses() {
     const container = document.getElementById('classesContainer');
     if (!container) return;
 
-    // The old "Compact dropdown" view is retired: one simple card view only.
+    // Old controls that the tabs replace
     const viewMode = document.getElementById('classViewModeSelect');
     if (viewMode) { viewMode.value = 'cards'; viewMode.style.display = 'none'; }
+    const formFilter = document.getElementById('formLevelFilter');
+    if (formFilter) formFilter.style.display = 'none';
 
     container.innerHTML = '';
     renderClassOverview();
 
     const classes = window._classes || [];
-    const filterValue = document.getElementById('formLevelFilter')?.value || '';
-    const quickFilter = window._classQuickFilter || '';
-    const studentList = getData('students') || [];
-
-    let displayClasses = classes;
-    if (filterValue) {
-        displayClasses = classes.filter(cls => String(cls.formLevel) === String(filterValue));
-    }
-
-    if (quickFilter) {
-        displayClasses = displayClasses.filter(cls => quickFilter === 'noTeacher'
-            ? resolveClassTeacherName(cls) === '—'
-            : !studentList.some(s => s.class === cls.name));
-        container.insertAdjacentHTML('beforeend',
-            `<div class="cm-chip">Showing: ${quickFilter === 'noTeacher' ? 'Classes without a teacher' : 'Empty classes'}
-                <button type="button" onclick="setClassQuickFilter('')">Clear</button></div>`);
-    }
-
-    if (displayClasses.length === 0) {
-        container.insertAdjacentHTML('beforeend', quickFilter
-            ? '<p>No classes match this filter.</p>'
-            : '<p>No classes yet. Click "Add New Class" to create one.</p>');
+    if (classes.length === 0) {
+        container.innerHTML = '<p>No classes yet. Click "Add New Class" to create one.</p>';
         return;
     }
 
-    const groupedByForm = {};
-    displayClasses.forEach(cls => {
-        const formLevel = cls.formLevel || 'Unassigned';
-        (groupedByForm[formLevel] = groupedByForm[formLevel] || []).push(cls);
+    const quick = window._classQuickFilter || '';
+    const forms = cmFormList(classes);
+    if (!forms.includes(window._classFormView)) window._classFormView = forms[0];
+
+    const counts = {};
+    classes.forEach(c => {
+        const f = String(c.formLevel || 'Unassigned');
+        counts[f] = (counts[f] || 0) + 1;
     });
 
-    const sortedForms = Object.keys(groupedByForm).sort((a, b) => {
-        if (a === 'Unassigned') return 1;
-        if (b === 'Unassigned') return -1;
-        return parseInt(a) - parseInt(b);
-    });
+    const chip = quick
+        ? `<div class="cm-chip">Showing: ${quick === 'noTeacher' ? 'Classes without a teacher' : 'Empty classes'}
+            <button type="button" onclick="setClassQuickFilter('')">Clear</button></div>`
+        : '';
+    const tabs = forms.map(f => `
+        <button type="button" class="cm-tab" data-class-action="form" data-id="${cmEsc(f)}">
+            ${f === 'Unassigned' ? 'Unassigned' : 'Form ' + cmEsc(f)} <span>${counts[f]}</span>
+        </button>`).join('');
 
-    sortedForms.forEach(formLevel => {
-        const classesForForm = groupedByForm[formLevel];
-        const details = document.createElement('details');
-        details.className = 'form-group';
-        details.open = true; // open by default: nothing hidden behind a click
+    container.innerHTML = `
+        ${chip}
+        <div class="cm-tools">
+            <div class="cm-tabs">${tabs}</div>
+            <input id="cmClassSearch" class="cm-search" type="search"
+                placeholder="Search all classes..." value="${cmEsc(window._classSearch || '')}">
+        </div>
+        <div id="cmClassTable"></div>`;
+    renderClassTable();
+}
 
-        const summary = document.createElement('summary');
-        summary.className = 'form-group-summary';
-        summary.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:1rem;">
-                <div style="display:flex; gap:0.75rem; align-items:center;">
-                    <h3 style="margin:0; color:#EA580C; font-size:1.05rem;">Form ${cmEsc(formLevel)}</h3>
-                    <span style="color:#666; font-size:0.95rem;">(${classesForForm.length} ${classesForForm.length === 1 ? 'class' : 'classes'})</span>
-                </div>
-            </div>`;
-        details.appendChild(summary);
+// Fills only the table, so typing in the search box never loses focus.
+function renderClassTable() {
+    const holder = document.getElementById('cmClassTable');
+    if (!holder) return;
+    const classes = window._classes || [];
+    const students = getData('students') || [];
+    const quick = window._classQuickFilter || '';
+    const search = (window._classSearch || '').trim().toLowerCase();
+    const searching = !!(search || quick);
 
-        const grid = document.createElement('div');
-        grid.className = 'classes-grid form-group-grid';
-        classesForForm.forEach(cls => {
-            const card = document.createElement('div');
-            card.className = 'class-card';
-            const count = studentList.filter(s => s.class === cls.name).length;
-            card.innerHTML = classCardHtml(cls, count);
-            grid.appendChild(card);
-        });
-        details.appendChild(grid);
-        container.appendChild(details);
-    });
+    const counts = {};
+    students.forEach(s => { counts[s.class] = (counts[s.class] || 0) + 1; });
+
+    // Searching or using a quick filter looks across ALL forms
+    let list = searching
+        ? classes
+        : classes.filter(c => String(c.formLevel || 'Unassigned') === window._classFormView);
+    if (quick === 'noTeacher') list = list.filter(c => resolveClassTeacherName(c) === '—');
+    if (quick === 'empty') list = list.filter(c => !counts[c.name]);
+    if (search) {
+        list = list.filter(c =>
+            String(c.name).toLowerCase().includes(search) ||
+            resolveClassTeacherName(c).toLowerCase().includes(search) ||
+            String(c.room || '').toLowerCase().includes(search));
+    }
+    list = cmSortedClasses(list);
+
+    document.querySelectorAll('.cm-tab').forEach(t =>
+        t.classList.toggle('active', !searching && t.dataset.id === window._classFormView));
+
+    if (list.length === 0) {
+        holder.innerHTML = '<p class="cm-empty">No classes found.</p>';
+        return;
+    }
+
+    const totalStudents = list.reduce((sum, c) => sum + (counts[c.name] || 0), 0);
+    const rows = list.map(c => {
+        const teacher = resolveClassTeacherName(c);
+        return `<tr>
+            <td><strong>${cmEsc(c.name)}</strong></td>
+            <td>${teacher === '—' ? '<span class="cm-muted">No teacher</span>' : cmEsc(teacher)}</td>
+            <td>${cmEsc(c.room || '-')}</td>
+            <td>${counts[c.name] || 0}</td>
+            <td class="cm-actions">
+                <button class="btn-small btn-info" data-class-action="view" data-id="${cmEsc(c.id)}">View</button>
+                <button class="btn-small btn-warning" data-class-action="edit" data-id="${cmEsc(c.id)}">Edit</button>
+                <button class="btn-small btn-danger" data-class-action="delete" data-id="${cmEsc(c.id)}">Delete</button>
+            </td>
+        </tr>`;
+    }).join('');
+
+    holder.innerHTML = `
+        <div class="cm-table-wrap">
+            <table class="cm-table">
+                <thead><tr><th>Class</th><th>Class Teacher</th><th>Room</th><th>Students</th><th></th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+        <p class="cm-summary">${list.length} ${list.length === 1 ? 'class' : 'classes'} · ${totalStudents} student${totalStudents === 1 ? '' : 's'}</p>`;
 }
 
 function filterClassesByFormLevel() {
@@ -146,11 +176,24 @@ document.addEventListener('click', function (e) {
     if (!btn) return;
     const id = btn.dataset.id;
     switch (btn.dataset.classAction) {
+        case 'form':
+            window._classFormView = id;
+            window._classSearch = '';
+            window._classQuickFilter = '';
+            renderClasses();
+            break;
         case 'view': showViewClassDetails(id); break;
         case 'edit': showEditClassForm(id); break;
         case 'delete': deleteClassRecord(btn, id); break;
         case 'grade': promptAddGrade(id); break;
         case 'student': viewStudentDetail(id); break;
+    }
+});
+
+document.addEventListener('input', function (e) {
+    if (e.target && e.target.id === 'cmClassSearch') {
+        window._classSearch = e.target.value;
+        renderClassTable();
     }
 });
 
@@ -479,6 +522,24 @@ function injectClassOverviewStyles() {
         .cm-ay-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.1rem; }
         .cm-ay-box { border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; padding: 0.8rem 1rem; background: var(--light-bg, #f8fafc); }
         .cm-ay-box .cm-stat-value { font-size: 1.4rem; }
+        .cm-tools { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+        .cm-tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .cm-tab { border: 1px solid var(--border-color, #e2e8f0); background: #fff; border-radius: 999px; padding: 0.45rem 1rem; font: inherit; font-weight: 600; font-size: 0.9rem; cursor: pointer; color: #475569; }
+        .cm-tab span { margin-left: 0.35rem; background: #f1f5f9; border-radius: 999px; padding: 0.05rem 0.5rem; font-size: 0.78rem; }
+        .cm-tab:hover { border-color: #ea580c; }
+        .cm-tab.active { background: #ea580c; border-color: #ea580c; color: #fff; }
+        .cm-tab.active span { background: rgba(255, 255, 255, 0.25); color: #fff; }
+        .cm-search { min-width: 220px; padding: 0.55rem 0.9rem; border: 1px solid var(--border-color, #e2e8f0); border-radius: 10px; font: inherit; font-size: 0.9rem; background: #fff; }
+        .cm-table-wrap { overflow-x: auto; background: #fff; border: 1px solid var(--border-color, #e2e8f0); border-radius: 14px; }
+        .cm-table { width: 100%; border-collapse: collapse; }
+        .cm-table th { text-align: left; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #64748b; padding: 0.75rem 1rem; background: #f8fafc; border-bottom: 1px solid var(--border-color, #e2e8f0); }
+        .cm-table td { padding: 0.7rem 1rem; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+        .cm-table tr:last-child td { border-bottom: none; }
+        .cm-table tbody tr:hover { background: #fff7ed; }
+        .cm-actions { white-space: nowrap; text-align: right; }
+        .cm-muted { color: #b45309; font-size: 0.88rem; }
+        .cm-summary { margin: 0.6rem 0.25rem 0; color: #64748b; font-size: 0.85rem; }
+        .cm-empty { padding: 1rem; color: #64748b; }
         @media (max-width: 1100px) { .cm-stats, .cm-minis { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 560px) { .cm-stats, .cm-minis, .cm-ay-summary { grid-template-columns: 1fr; } }
     </style>`);
