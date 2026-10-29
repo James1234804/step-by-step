@@ -1,15 +1,21 @@
-
-// ============================================================
-// fees.js — Fees & Finance
+ // ============================================================
+// fees.js — Fees & Finance  (version 2: payments are applied to specific fee items)
 // Standalone module. Load it AFTER school.js:
 //   <script src="school.js"></script>
 //   <script src="fees.js"></script>
+//   <script src="records.js"></script>
 //
 // It builds the whole Fees & Finance section itself and talks to
-// Supabase directly (tables from fees.sql). It does not read or write
-// the old flat "fees" data, and nothing in school.js has to change.
+// Supabase directly (tables from fees.sql). Nothing in school.js has to change.
 //
-// SECURITY MODEL (read this):
+// HOW PAYMENTS WORK
+//  - Every fee item (Tuition, Examination, Transport...) is billed separately.
+//  - When money is received, the cashier says which item(s) it pays for.
+//    A $20 payment for "Science Practical" can never reduce tuition.
+//  - Each item cannot be overpaid, and a payment is saved together with its
+//    allocations in one database step (nothing half-saved).
+//
+// SECURITY MODEL
 //  - Money is stored as integer cents. No floating-point maths on balances.
 //  - Every piece of text is HTML-escaped. No inline onclick handlers.
 //  - Payments are never deleted or edited. A mistake is a REVERSAL with a
@@ -48,6 +54,8 @@
         structures: [],
         assignments: [],
         payments: [],
+        allocations: [],
+        allocByPay: new Map(),
         loaded: false,
         loadError: '',
         busy: false,
@@ -106,25 +114,36 @@
         return (typeof calculateCurrentFormLevel === 'function') ? calculateCurrentFormLevel(stu.enrollmentYear) : null;
     }
 
+    function indexAllocations() {
+        S.allocByPay = new Map();
+        S.allocations.forEach(a => {
+            if (!S.allocByPay.has(a.payment_id)) S.allocByPay.set(a.payment_id, []);
+            S.allocByPay.get(a.payment_id).push(a);
+        });
+    }
+
     async function loadAll() {
         const c = db();
         if (!c) { S.loadError = 'Supabase is not connected. Check that supabase-js loads before school.js.'; return; }
         try {
-            const [st, as, pay] = await Promise.all([
+            const [st, as, pay, al] = await Promise.all([
                 c.from('fee_structures').select('*').order('year', { ascending: false }),
                 c.from('fee_assignments').select('*'),
-                c.from('fee_payments').select('*').order('recorded_at', { ascending: false })
+                c.from('fee_payments').select('*').order('recorded_at', { ascending: false }),
+                c.from('fee_allocations').select('*')
             ]);
-            const err = st.error || as.error || pay.error;
+            const err = st.error || as.error || pay.error || al.error;
             if (err) {
-                S.loadError = /relation|does not exist|42P01/i.test(err.message + (err.code || ''))
-                    ? 'The fees tables do not exist yet. Run fees.sql in the Supabase SQL editor, then refresh.'
+                S.loadError = /relation|does not exist|42P01|schema cache/i.test(err.message + (err.code || ''))
+                    ? 'The fees tables are missing or out of date. Run the latest fees.sql in the Supabase SQL editor, then refresh.'
                     : 'Could not load fee data: ' + err.message;
                 return;
             }
             S.structures = st.data || [];
             S.assignments = as.data || [];
             S.payments = pay.data || [];
+            S.allocations = al.data || [];
+            indexAllocations();
             S.loadError = '';
             S.loaded = true;
         } catch (e) {
@@ -134,8 +153,12 @@
 
     async function reloadPayments() {
         const c = db(); if (!c) return;
-        const { data, error } = await c.from('fee_payments').select('*').order('recorded_at', { ascending: false });
-        if (!error && data) S.payments = data;
+        const [pay, al] = await Promise.all([
+            c.from('fee_payments').select('*').order('recorded_at', { ascending: false }),
+            c.from('fee_allocations').select('*')
+        ]);
+        if (!pay.error && pay.data) S.payments = pay.data;
+        if (!al.error && al.data) { S.allocations = al.data; indexAllocations(); }
     }
 
     async function audit(action, paymentId, detail) {
@@ -153,18 +176,25 @@
             (f.form_level == null || f.form_level === lvl) &&
             (!f.optional || S.assignments.some(a => a.student_id === stu.id && a.structure_id === f.id)));
     }
+    // One account = every item billed, how much of each was paid, and what is still owing.
     function account(stu, year, throughTerm) {
         const items = chargeItems(stu, year, throughTerm);
         const pays = S.payments.filter(p => p.student_id === stu.id && p.year === year && p.status === 'valid');
         const billed = sum(items, i => i.amount_cents);
         const paid = sum(pays, p => p.amount_cents);
-        return { items, pays, billed, paid, balance: billed - paid };
+        const lines = items.map(i => {
+            const lp = sum(pays, p => sum((S.allocByPay.get(p.id) || []).filter(x => x.structure_id === i.id), x => x.amount_cents));
+            return { item: i, paid: lp, remaining: Math.max(0, i.amount_cents - lp) };
+        }).sort((a, b) => termIdx(a.item.term) - termIdx(b.item.term) || a.item.name.localeCompare(b.item.name));
+        const unallocated = paid - sum(lines, l => l.paid); // payments not tied to an active item
+        return { items, pays, billed, paid, balance: billed - paid, lines, unallocated };
     }
     function statusOf(a) {
         if (a.billed === 0 && a.paid === 0) return 'No fees';
         if (a.balance <= 0) return 'Paid';
         return a.paid > 0 ? 'Partial' : 'Unpaid';
     }
+    const lineStatus = l => l.remaining <= 0 ? 'Paid' : (l.paid > 0 ? 'Partial' : 'Unpaid');
     function accounts() {
         const t = termIdx(S.term);
         return activeStudents().map(stu => {
@@ -173,6 +203,14 @@
         });
     }
     const yearPayments = () => S.payments.filter(p => p.year === S.year && p.status === 'valid');
+    const structureOf = id => S.structures.find(s => s.id === id);
+
+    // "Tuition Term 1 $150.00, Examination $20.00" — what a payment was applied to.
+    function allocText(p, withAmounts) {
+        const al = S.allocByPay.get(p.id) || [];
+        if (!al.length) return 'Unallocated';
+        return al.map(x => { const f = structureOf(x.structure_id); return (f ? f.name + ' (' + f.term + ')' : 'Fee item') + (withAmounts === false ? '' : ' ' + fmt(x.amount_cents)); }).join(', ');
+    }
 
     // ---------- CSV / print ----------
     function csvCell(v) {
@@ -209,12 +247,16 @@
     function receiptHtml(p) {
         const stu = findStudent(p.student_id) || {};
         const a = stu.id ? account(stu, p.year, 2) : null;
+        const al = S.allocByPay.get(p.id) || [];
         return docHeader('Official Fee Receipt') +
             '<p class="big">' + esc(fmt(p.amount_cents)) + '</p>' +
             '<table><tr><th>Receipt no.</th><td>' + esc(p.receipt_no) + '</td><th>Date paid</th><td>' + esc(showDate(p.paid_on)) + '</td></tr>' +
             '<tr><th>Student</th><td>' + esc(p.student_name) + ' (' + esc(p.student_id) + ')</td><th>Class</th><td>' + esc(p.class || '—') + '</td></tr>' +
             '<tr><th>Period</th><td>' + esc(p.term) + ' ' + esc(p.year) + '</td><th>Method</th><td>' + esc(p.method) + '</td></tr>' +
             '<tr><th>Reference</th><td>' + esc(p.reference || '—') + '</td><th>Received by</th><td>' + esc(p.recorded_by) + '</td></tr></table>' +
+            '<h2>Payment applied to</h2><table><tr><th>Fee item</th><th>Term</th><th class="num">Amount</th></tr>' +
+            (al.length ? al.map(x => { const f = structureOf(x.structure_id) || {}; return '<tr><td>' + esc(f.name || 'Fee item') + ' <span class="muted">(' + esc(f.category || '') + ')</span></td><td>' + esc(f.term || '') + '</td><td class="num">' + esc(fmt(x.amount_cents)) + '</td></tr>'; }).join('') : '<tr><td colspan="3">Not allocated to a specific item</td></tr>') +
+            '<tr class="tot"><td colspan="2">Total received</td><td class="num">' + esc(fmt(p.amount_cents)) + '</td></tr></table>' +
             (p.status === 'reversed' ? '<p class="rev"><strong>REVERSED</strong> — ' + esc(p.reversal_reason) + '</p>' : '') +
             (a && p.status === 'valid' ? '<p class="muted">Balance on account for ' + esc(p.year) + ' after all valid payments: <strong>' + esc(fmt(Math.max(0, a.balance))) + '</strong></p>' : '') +
             '<div class="sign"><div>Received by</div><div>Parent / Guardian</div></div>';
@@ -224,12 +266,13 @@
         const allPays = S.payments.filter(p => p.student_id === stu.id && p.year === S.year);
         return docHeader('Statement of Account — ' + S.year) +
             '<p><strong>' + esc(stu.name) + '</strong> (' + esc(stu.id) + ') — ' + esc(stu.class) + '</p>' +
-            '<h2>Charges</h2><table><tr><th>Term</th><th>Item</th><th class="num">Amount</th></tr>' +
-            (a.items.length ? a.items.map(i => '<tr><td>' + esc(i.term) + '</td><td>' + esc(i.name) + ' (' + esc(i.category) + ')</td><td class="num">' + esc(fmt(i.amount_cents)) + '</td></tr>').join('') : '<tr><td colspan="3">No charges</td></tr>') +
-            '<tr class="tot"><td colspan="2">Total billed</td><td class="num">' + esc(fmt(a.billed)) + '</td></tr></table>' +
-            '<h2>Payments</h2><table><tr><th>Date</th><th>Receipt</th><th>Method</th><th class="num">Amount</th></tr>' +
-            (allPays.length ? allPays.map(p => '<tr class="' + (p.status === 'reversed' ? 'rev' : '') + '"><td>' + esc(showDate(p.paid_on)) + '</td><td>' + esc(p.receipt_no) + (p.status === 'reversed' ? ' (reversed)' : '') + '</td><td>' + esc(p.method) + '</td><td class="num">' + esc(fmt(p.amount_cents)) + '</td></tr>').join('') : '<tr><td colspan="4">No payments</td></tr>') +
-            '<tr class="tot"><td colspan="3">Total paid</td><td class="num">' + esc(fmt(a.paid)) + '</td></tr></table>' +
+            '<h2>Charges</h2><table><tr><th>Term</th><th>Item</th><th class="num">Billed</th><th class="num">Paid</th><th class="num">Owing</th></tr>' +
+            (a.lines.length ? a.lines.map(l => '<tr><td>' + esc(l.item.term) + '</td><td>' + esc(l.item.name) + ' (' + esc(l.item.category) + ')</td><td class="num">' + esc(fmt(l.item.amount_cents)) + '</td><td class="num">' + esc(fmt(l.paid)) + '</td><td class="num">' + esc(fmt(l.remaining)) + '</td></tr>').join('') : '<tr><td colspan="5">No charges</td></tr>') +
+            (a.unallocated > 0 ? '<tr><td colspan="3">Payments not tied to a specific item</td><td class="num">' + esc(fmt(a.unallocated)) + '</td><td></td></tr>' : '') +
+            '<tr class="tot"><td colspan="2">Totals</td><td class="num">' + esc(fmt(a.billed)) + '</td><td class="num">' + esc(fmt(a.paid)) + '</td><td class="num">' + esc(fmt(Math.max(0, a.balance))) + '</td></tr></table>' +
+            '<h2>Payments</h2><table><tr><th>Date</th><th>Receipt</th><th>Method</th><th>Applied to</th><th class="num">Amount</th></tr>' +
+            (allPays.length ? allPays.map(p => '<tr class="' + (p.status === 'reversed' ? 'rev' : '') + '"><td>' + esc(showDate(p.paid_on)) + '</td><td>' + esc(p.receipt_no) + (p.status === 'reversed' ? ' (reversed)' : '') + '</td><td>' + esc(p.method) + '</td><td>' + esc(allocText(p)) + '</td><td class="num">' + esc(fmt(p.amount_cents)) + '</td></tr>').join('') : '<tr><td colspan="5">No payments</td></tr>') +
+            '<tr class="tot"><td colspan="4">Total paid</td><td class="num">' + esc(fmt(a.paid)) + '</td></tr></table>' +
             '<p class="big">Balance: ' + esc(fmt(Math.max(0, a.balance))) + '</p>';
     }
 
@@ -284,6 +327,9 @@
     .fx-bal{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
     .fx-bal div{background:var(--bg);border-radius:10px;padding:8px 10px}.fx-bal b{display:block;font-size:1.05rem}.fx-bal span{font-size:.72rem;color:var(--mut);text-transform:uppercase}
     .fx-check{display:flex;gap:8px;align-items:center;padding:6px 0}.fx-check input{width:auto}
+    .fx-pay-in{width:110px;text-align:right}
+    .fx-paytotal{display:flex;justify-content:space-between;align-items:center;margin:10px 0;padding:10px 14px;background:var(--bg);border-radius:10px;font-size:1.05rem}
+    .fx-paytotal b{font-size:1.25rem;color:var(--a)}
     `;
 
     // ---------- HTML building blocks ----------
@@ -300,6 +346,7 @@
         S.structures.forEach(f => set.add(f.year));
         return Array.from(set).sort((a, b) => b - a);
     };
+    const owingText = r => r.lines.filter(l => l.remaining > 0).map(l => l.item.name + (l.item.term !== S.term ? ' (' + l.item.term + ')' : '') + ' ' + fmt(l.remaining)).join('; ');
 
     function totals(A) {
         const billed = sum(A, r => r.billed);
@@ -340,7 +387,7 @@
             '<div class="fx-card"><div class="l">Collection rate</div><div class="v">' + T.rate + '%</div><div class="fx-bar"><i style="width:' + T.rate + '%"></i></div></div>' +
             card('Collected today', fmt(T.today), showDate(todayISO())) + '</div>' +
             '<div class="fx-grid"><div class="fx-panel"><h3>Recent payments</h3>' +
-            (recent.length ? '<div class="fx-scroll"><table><tbody>' + recent.map(p => '<tr><td>' + esc(p.student_name) + '<br><small style="color:#64748B">' + esc(p.receipt_no) + '</small></td><td class="num">' + esc(fmt(p.amount_cents)) + '</td><td>' + esc(showDate(p.paid_on)) + '</td></tr>').join('') + '</tbody></table></div>' : '<div class="fx-empty">No payments recorded yet.</div>') + '</div>' +
+            (recent.length ? '<div class="fx-scroll"><table><tbody>' + recent.map(p => '<tr><td>' + esc(p.student_name) + '<br><small style="color:#64748B">' + esc(p.receipt_no) + ' · ' + esc(allocText(p, false)) + '</small></td><td class="num">' + esc(fmt(p.amount_cents)) + '</td><td>' + esc(showDate(p.paid_on)) + '</td></tr>').join('') + '</tbody></table></div>' : '<div class="fx-empty">No payments recorded yet.</div>') + '</div>' +
             '<div class="fx-panel"><h3>Largest balances</h3>' +
             (top.length ? '<div class="fx-scroll"><table><tbody>' + top.map(r => '<tr><td>' + esc(r.stu.name) + '<br><small style="color:#64748B">' + esc(r.stu.class) + '</small></td><td class="num">' + esc(fmt(r.balance)) + '</td></tr>').join('') + '</tbody></table></div>' : '<div class="fx-empty">No outstanding balances.</div>') + '</div></div>';
     }
@@ -369,8 +416,8 @@
         return '<div class="fx-filters"><input id="fx-f-pq" data-filter="pq" placeholder="Search name, receipt or reference" value="' + esc(S.f.pq) + '">' +
             '<select id="fx-f-method" data-filter="method">' + opts(CFG.methods, S.f.method, 'All methods') + '</select>' +
             '<button class="fx-btn" data-action="export-payments">Export CSV</button></div>' +
-            '<div class="fx-panel fx-scroll"><table><thead><tr><th>Receipt</th><th>Date</th><th>Student</th><th>Term</th><th>Method</th><th class="num">Amount</th><th>By</th><th></th></tr></thead><tbody>' +
-            (rows.length ? rows.map(p => '<tr class="' + (p.status === 'reversed' ? 'rev' : '') + '"><td>' + esc(p.receipt_no) + '</td><td>' + esc(showDate(p.paid_on)) + '</td><td>' + esc(p.student_name) + '</td><td>' + esc(p.term) + '</td><td>' + esc(p.method) + '</td><td class="num">' + esc(fmt(p.amount_cents)) + '</td><td>' + esc(p.recorded_by) + '</td>' +
+            '<div class="fx-panel fx-scroll"><table><thead><tr><th>Receipt</th><th>Date</th><th>Student</th><th>Paid for</th><th>Method</th><th class="num">Amount</th><th>By</th><th></th></tr></thead><tbody>' +
+            (rows.length ? rows.map(p => '<tr class="' + (p.status === 'reversed' ? 'rev' : '') + '"><td>' + esc(p.receipt_no) + '</td><td>' + esc(showDate(p.paid_on)) + '</td><td>' + esc(p.student_name) + '</td><td>' + esc(allocText(p, false)) + '</td><td>' + esc(p.method) + '</td><td class="num">' + esc(fmt(p.amount_cents)) + '</td><td>' + esc(p.recorded_by) + '</td>' +
                 '<td><div class="fx-act"><button class="fx-btn fx-sm" data-action="receipt" data-id="' + esc(p.id) + '">Receipt</button>' +
                 (p.status === 'valid' && can.reverse() ? '<button class="fx-btn fx-sm dng" data-action="open-reverse" data-id="' + esc(p.id) + '">Reverse</button>' : '') +
                 (p.status === 'reversed' ? '<span class="fx-b rv" title="' + esc(p.reversal_reason) + '">Reversed</span>' : '') + '</div></td></tr>').join('')
@@ -396,17 +443,21 @@
 
     function arrearsHtml() {
         const list = accounts().filter(r => r.balance > 0 && (!S.f.cls || r.stu.class === S.f.cls)).sort((a, b) => b.balance - a.balance);
-        S.arrears = list.map(r => ({
-            r, msg: 'Dear ' + (r.stu.parentName || 'Parent/Guardian') + ', this is a reminder from ' + CFG.schoolName + ' that the school fees balance for ' + r.stu.name + ' (' + r.stu.class + ') up to ' + S.term + ' ' + S.year + ' is ' + fmt(r.balance) + '. Kindly settle at your earliest convenience. Thank you.'
-        }));
+        S.arrears = list.map(r => {
+            const owing = owingText(r);
+            return {
+                r, owing, msg: 'Dear ' + (r.stu.parentName || 'Parent/Guardian') + ', this is a reminder from ' + CFG.schoolName + ' that the fees balance for ' + r.stu.name + ' (' + r.stu.class + ') up to ' + S.term + ' ' + S.year + ' is ' + fmt(r.balance) +
+                    (owing ? ', made up of: ' + owing : '') + '. Kindly settle at your earliest convenience. Thank you.'
+            };
+        });
         return '<div class="fx-filters"><select id="fx-f-cls" data-filter="cls">' + opts(classNames(), S.f.cls, 'All classes') + '</select>' +
             '<button class="fx-btn" data-action="export-arrears">Export CSV</button></div>' +
-            '<div class="fx-panel fx-scroll"><h3>Accounts owing — ' + fmt(sum(list, r => r.balance)) + ' in total</h3><table><thead><tr><th>Student</th><th>Class</th><th>Parent / phone</th><th class="num">Balance</th><th>Reminder</th></tr></thead><tbody>' +
+            '<div class="fx-panel fx-scroll"><h3>Accounts owing — ' + fmt(sum(list, r => r.balance)) + ' in total</h3><table><thead><tr><th>Student</th><th>Class</th><th>Parent / phone</th><th>Owing for</th><th class="num">Balance</th><th>Reminder</th></tr></thead><tbody>' +
             (S.arrears.length ? S.arrears.map((x, i) => {
                 const link = waLink(x.r.stu.phone, x.msg);
-                return '<tr><td>' + esc(x.r.stu.name) + '</td><td>' + esc(x.r.stu.class) + '</td><td>' + esc(x.r.stu.parentName || '—') + '<br><small style="color:#64748B">' + esc(x.r.stu.phone || 'No phone') + '</small></td><td class="num">' + esc(fmt(x.r.balance)) + '</td>' +
+                return '<tr><td>' + esc(x.r.stu.name) + '</td><td>' + esc(x.r.stu.class) + '</td><td>' + esc(x.r.stu.parentName || '—') + '<br><small style="color:#64748B">' + esc(x.r.stu.phone || 'No phone') + '</small></td><td><small>' + esc(x.owing || '—') + '</small></td><td class="num">' + esc(fmt(x.r.balance)) + '</td>' +
                     '<td><div class="fx-act">' + (link ? '<a class="fx-btn fx-sm" href="' + esc(link) + '" target="_blank" rel="noopener noreferrer">WhatsApp</a>' : '') + '<button class="fx-btn fx-sm" data-action="copy-msg" data-i="' + i + '">Copy message</button></div></td></tr>';
-            }).join('') : '<tr><td colspan="5" class="fx-empty">No accounts owe money. 🎉</td></tr>') + '</tbody></table></div>';
+            }).join('') : '<tr><td colspan="6" class="fx-empty">No accounts owe money. 🎉</td></tr>') + '</tbody></table></div>';
     }
     function waLink(phone, msg) {
         let d = String(phone || '').replace(/\D/g, '');
@@ -421,11 +472,18 @@
         const byClass = {};
         A.forEach(r => { const k = r.stu.class || '—'; const o = byClass[k] || (byClass[k] = { billed: 0, paid: 0, owed: 0, n: 0 }); o.billed += r.billed; o.paid += r.paid; o.owed += Math.max(0, r.balance); o.n++; });
         const group = key => { const m = {}; pays.forEach(p => { m[p[key]] = (m[p[key]] || 0) + p.amount_cents; }); return m; };
+        const byType = {};
+        pays.forEach(p => {
+            let got = 0;
+            (S.allocByPay.get(p.id) || []).forEach(x => { const f = structureOf(x.structure_id); const k = f ? f.category : 'Other'; byType[k] = (byType[k] || 0) + x.amount_cents; got += x.amount_cents; });
+            if (p.amount_cents - got > 0) byType['Unallocated'] = (byType['Unallocated'] || 0) + (p.amount_cents - got);
+        });
         const simple = (m, order) => { const keys = order ? order.filter(k => m[k]) : Object.keys(m); return keys.length ? keys.map(k => '<tr><td>' + esc(k) + '</td><td class="num">' + esc(fmt(m[k])) + '</td></tr>').join('') : '<tr><td colspan="2" class="fx-empty">No data</td></tr>'; };
         return '<div class="fx-filters"><button class="fx-btn" data-action="export-accounts">Export accounts CSV</button><button class="fx-btn" data-action="export-payments">Export payments CSV</button></div>' +
             '<div class="fx-panel fx-scroll"><h3>Collections by class — ' + esc(S.year) + '</h3><table><thead><tr><th>Class</th><th class="num">Students</th><th class="num">Billed</th><th class="num">Collected</th><th class="num">Outstanding</th><th class="num">Rate</th></tr></thead><tbody>' +
             (Object.keys(byClass).sort().map(k => { const o = byClass[k]; return '<tr><td>' + esc(k) + '</td><td class="num">' + o.n + '</td><td class="num">' + esc(fmt(o.billed)) + '</td><td class="num">' + esc(fmt(o.paid)) + '</td><td class="num">' + esc(fmt(o.owed)) + '</td><td class="num">' + (o.billed ? Math.min(100, Math.round(o.paid / o.billed * 100)) : 0) + '%</td></tr>'; }).join('') || '<tr><td colspan="6" class="fx-empty">No data</td></tr>') + '</tbody></table></div>' +
-            '<div class="fx-grid"><div class="fx-panel"><h3>By term</h3><table><tbody>' + simple(group('term'), CFG.terms) + '</tbody></table></div>' +
+            '<div class="fx-grid"><div class="fx-panel"><h3>By fee type</h3><table><tbody>' + simple(byType) + '</tbody></table></div>' +
+            '<div class="fx-panel"><h3>By term received</h3><table><tbody>' + simple(group('term'), CFG.terms) + '</tbody></table></div>' +
             '<div class="fx-panel"><h3>By payment method</h3><table><tbody>' + simple(group('method')) + '</tbody></table></div></div>';
     }
 
@@ -456,23 +514,47 @@
     function closeModal() { S.modal.classList.remove('open'); S.modal.innerHTML = ''; S.modal.dataset.id = ''; }
     const dlgTop = (t, sub) => '<div class="fx-dlg-top"><div><h3>' + esc(t) + '</h3><div class="fx-sub">' + esc(sub || '') + '</div></div><button class="fx-x" data-action="close-modal" aria-label="Close">×</button></div>';
 
+    // ----- Record payment: the cashier chooses which fee item(s) the money is for -----
     function openPay(id) {
         if (!can.record()) return notify('Your role cannot record payments.', 'error');
         const stu = findStudent(id); if (!stu) return notify('Student not found.', 'error');
         const a = account(stu, S.year, 2);
         const fullBal = Math.max(0, a.balance);
-        if (fullBal <= 0) return notify('This account has nothing left to pay for ' + S.year + '.', 'info');
+        if (fullBal <= 0 || !a.lines.some(l => l.remaining > 0)) return notify('This account has nothing left to pay for ' + S.year + '.', 'info');
         S.modal.dataset.id = id;
+        const rows = a.lines.map(l => {
+            const it = l.item;
+            const label = esc(it.term) + ' · ' + esc(it.name) + ' <small style="color:#64748B">' + esc(it.category) + '</small>';
+            if (l.remaining <= 0) return '<tr><td>' + label + '</td><td class="num">' + esc(fmt(it.amount_cents)) + '</td><td class="num">' + esc(fmt(l.paid)) + '</td><td class="num">—</td><td style="text-align:right"><span class="fx-b paid">Paid</span></td></tr>';
+            return '<tr><td>' + label + '</td><td class="num">' + esc(fmt(it.amount_cents)) + '</td><td class="num">' + esc(fmt(l.paid)) + '</td><td class="num"><b>' + esc(fmt(l.remaining)) + '</b></td>' +
+                '<td><div class="fx-act" style="flex-wrap:nowrap;justify-content:flex-end"><input class="fx-pay-in" data-sid="' + esc(it.id) + '" inputmode="decimal" placeholder="0.00" aria-label="Amount to pay for ' + esc(it.name) + '">' +
+                '<button class="fx-btn fx-sm" data-action="pay-full" data-sid="' + esc(it.id) + '" data-amt="' + (l.remaining / 100).toFixed(2) + '">Full</button></div></td></tr>';
+        }).join('');
         openModal(dlgTop('Record payment', stu.name + ' · ' + stu.class) +
             '<div class="fx-bal"><div><span>Billed (' + esc(S.year) + ')</span><b>' + esc(fmt(a.billed)) + '</b></div><div><span>Paid</span><b>' + esc(fmt(a.paid)) + '</b></div><div><span>Balance</span><b>' + esc(fmt(fullBal)) + '</b></div></div>' +
-            '<div class="fx-form"><div><label for="fx-p-term">Term</label><select id="fx-p-term">' + opts(CFG.terms, S.term) + '</select></div>' +
-            '<div><label for="fx-p-amt">Amount</label><input id="fx-p-amt" inputmode="decimal" placeholder="0.00"></div>' +
+            '<h4 style="margin:8px 0 4px">What is being paid for?</h4>' +
+            '<p class="fx-sub" style="margin:0 0 6px">Type an amount next to each item the money is for, or press Full. Leave an item blank to pay nothing toward it.</p>' +
+            '<div class="fx-scroll"><table><thead><tr><th>Fee item</th><th class="num">Billed</th><th class="num">Paid</th><th class="num">Owing</th><th class="num">Pay now</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+            '<div class="fx-act" style="justify-content:flex-end;margin-top:6px"><button class="fx-btn fx-sm" data-action="pay-all">Pay everything owing</button></div>' +
+            '<div class="fx-paytotal"><span>Total being paid</span><b id="fx-p-total">' + esc(fmt(0)) + '</b></div>' +
+            '<div class="fx-form"><div><label for="fx-p-term">Term received</label><select id="fx-p-term">' + opts(CFG.terms, S.term) + '</select></div>' +
             '<div><label for="fx-p-method">Method</label><select id="fx-p-method">' + opts(CFG.methods, 'Cash') + '</select></div>' +
             '<div><label for="fx-p-date">Date paid</label><input id="fx-p-date" type="date" max="' + todayISO() + '" value="' + todayISO() + '"></div>' +
             '<div style="grid-column:1/-1"><label for="fx-p-ref">Reference (EcoCash / bank ref)</label><input id="fx-p-ref" maxlength="60"></div>' +
             '<div style="grid-column:1/-1"><label for="fx-p-note">Note (optional)</label><input id="fx-p-note" maxlength="120"></div></div>' +
-            '<p class="fx-sub">Overpayments are blocked. A receipt number is generated automatically.</p>' +
-            '<div class="fx-act" style="justify-content:flex-end;margin-top:10px"><button class="fx-btn" data-action="close-modal">Cancel</button><button class="fx-btn pri" id="fx-p-save" data-action="submit-pay">Save payment</button></div>');
+            '<p class="fx-sub">Each item cannot be overpaid. A receipt number is generated automatically.</p>' +
+            '<div class="fx-act" style="justify-content:flex-end;margin-top:10px"><button class="fx-btn" data-action="close-modal">Cancel</button><button class="fx-btn pri" id="fx-p-save" data-action="submit-pay">Save payment</button></div>', true);
+    }
+    function payInputs() { return Array.prototype.slice.call(S.modal.querySelectorAll('.fx-pay-in')); }
+    function updatePayTotal() {
+        const el = document.getElementById('fx-p-total'); if (!el) return;
+        let t = 0, bad = false;
+        payInputs().forEach(i => { const v = i.value.trim(); if (!v) return; const c = parseMoney(v); if (c == null) bad = true; else t += c; });
+        el.textContent = fmt(t) + (bad ? '  (check the amounts)' : '');
+    }
+    function fillFull(btn) {
+        const inp = payInputs().find(i => i.dataset.sid === btn.dataset.sid);
+        if (inp) inp.value = btn.dataset.amt;
     }
 
     async function nextReceipt() {
@@ -491,11 +573,9 @@
         const val = id => (document.getElementById(id) || {}).value || '';
         const term = val('fx-p-term'), method = val('fx-p-method'), paidOn = val('fx-p-date');
         const ref = val('fx-p-ref').trim().slice(0, 60), note = val('fx-p-note').trim().slice(0, 120);
-        const cents = parseMoney(val('fx-p-amt'));
 
         if (!CFG.terms.includes(term)) return notify('Choose a valid term.', 'warning');
         if (!CFG.methods.includes(method)) return notify('Choose a valid payment method.', 'warning');
-        if (cents == null) return notify('Enter a valid amount, for example 150.00.', 'warning');
         if (!validDate(paidOn)) return notify('Enter a valid date that is not in the future.', 'warning');
         if (method !== 'Cash' && !ref) return notify('A reference is required for ' + method + ' payments.', 'warning');
 
@@ -504,7 +584,20 @@
         try {
             await reloadPayments(); // work from the latest numbers, not a stale screen
             const a = account(stu, S.year, 2);
-            if (cents > Math.max(0, a.balance)) return notify('Amount is more than the balance of ' + fmt(Math.max(0, a.balance)) + '. Overpayments are not allowed.', 'error');
+            const allocs = []; let total = 0;
+            for (const inp of payInputs()) {
+                const v = inp.value.trim(); if (!v) continue;
+                const line = a.lines.find(l => l.item.id === inp.dataset.sid);
+                if (!line) return notify('A fee item changed while this window was open. Close it and try again.', 'error');
+                const cents = parseMoney(v);
+                if (cents == null) return notify('Enter a valid amount for ' + line.item.name + ', for example 20.00.', 'warning');
+                if (cents > line.remaining) return notify(line.item.name + ' (' + line.item.term + ') only has ' + fmt(line.remaining) + ' owing. Overpayments are not allowed.', 'error');
+                allocs.push({ structure_id: line.item.id, amount_cents: cents });
+                total += cents;
+            }
+            if (!allocs.length) return notify('Type an amount next to at least one fee item.', 'warning');
+            if (total > Math.max(0, a.balance)) return notify('Total is more than the balance of ' + fmt(Math.max(0, a.balance)) + '.', 'error');
+            if (total > CFG.maxAmountCents) return notify('Amount is too large.', 'error');
             if (ref && S.payments.some(p => p.status === 'valid' && p.method === method && String(p.reference || '').toLowerCase() === ref.toLowerCase()))
                 return notify('That ' + method + ' reference was already used on another payment.', 'error');
 
@@ -512,22 +605,23 @@
             for (let attempt = 0; attempt < 4 && !saved; attempt++) {
                 const row = {
                     id: uid('FP'), receipt_no: await nextReceipt(), student_id: stu.id, student_name: stu.name, class: stu.class || '',
-                    year: S.year, term, amount_cents: cents, method, reference: ref || null, note: note || null,
-                    paid_on: paidOn, recorded_by: actor(), status: 'valid'
+                    year: S.year, term, amount_cents: total, method, reference: ref || '', note: note || '',
+                    paid_on: paidOn, recorded_by: actor()
                 };
-                const { error } = await c.from('fee_payments').insert(row);
+                // One database step saves the payment AND what it was applied to, or neither.
+                const { error } = await c.rpc('fee_record_payment', { p: row, a: allocs });
                 if (!error) saved = row;
                 else if (error.code === '23505' && /receipt_no/.test(error.message)) continue; // someone else took that number; try the next
                 else { console.warn(error); return notify('Payment was NOT saved: ' + error.message, 'error'); }
             }
             if (!saved) return notify('Could not get a unique receipt number. Please try again.', 'error');
 
-            await audit('payment_recorded', saved.id, { receipt: saved.receipt_no, student: stu.id, amount_cents: cents, method, term, year: S.year });
-            if (typeof addActivity === 'function') addActivity('💰', 'Payment ' + saved.receipt_no + ': ' + stu.name + ' — ' + fmt(cents));
+            await audit('payment_recorded', saved.id, { receipt: saved.receipt_no, student: stu.id, amount_cents: total, method, term, year: S.year, allocations: allocs });
+            if (typeof addActivity === 'function') addActivity('💰', 'Payment ' + saved.receipt_no + ': ' + stu.name + ' — ' + fmt(total));
             await reloadPayments();
             closeModal(); render();
             notify('Payment saved. Receipt ' + saved.receipt_no, 'success');
-            printDoc('Receipt ' + saved.receipt_no, receiptHtml(saved));
+            printDoc('Receipt ' + saved.receipt_no, receiptHtml(Object.assign({ status: 'valid' }, saved)));
         } finally {
             S.busy = false;
             const b = document.getElementById('fx-p-save'); if (b) b.disabled = false;
@@ -539,7 +633,8 @@
         const p = S.payments.find(x => x.id === id); if (!p || p.status !== 'valid') return;
         S.modal.dataset.id = id;
         openModal(dlgTop('Reverse payment', p.receipt_no + ' · ' + p.student_name + ' · ' + fmt(p.amount_cents)) +
-            '<p>The payment stays on record, marked as reversed, and the balance goes back up. This cannot be undone.</p>' +
+            '<p>Paid for: ' + esc(allocText(p)) + '</p>' +
+            '<p>The payment stays on record, marked as reversed, and the balances for those items go back up. This cannot be undone.</p>' +
             '<div class="fx-form"><div style="grid-column:1/-1"><label for="fx-r-reason">Reason (required)</label><textarea id="fx-r-reason" rows="3" maxlength="200" style="width:100%"></textarea></div></div>' +
             '<div class="fx-act" style="justify-content:flex-end;margin-top:10px"><button class="fx-btn" data-action="close-modal">Cancel</button><button class="fx-btn dng" id="fx-r-save" data-action="submit-reverse">Reverse payment</button></div>');
     }
@@ -572,9 +667,11 @@
         const all = S.payments.filter(p => p.student_id === id && p.year === S.year);
         openModal(dlgTop(stu.name + ' — Statement ' + S.year, stu.class + ' · ' + stu.id) +
             '<div class="fx-bal"><div><span>Billed</span><b>' + esc(fmt(a.billed)) + '</b></div><div><span>Paid</span><b>' + esc(fmt(a.paid)) + '</b></div><div><span>Balance</span><b>' + esc(fmt(Math.max(0, a.balance))) + '</b></div></div>' +
-            '<h4>Charges</h4><div class="fx-scroll"><table><tbody>' + (a.items.length ? a.items.map(i => '<tr><td>' + esc(i.term) + '</td><td>' + esc(i.name) + '</td><td class="num">' + esc(fmt(i.amount_cents)) + '</td></tr>').join('') : '<tr><td class="fx-empty">No fees set for this student and year.</td></tr>') + '</tbody></table></div>' +
+            '<h4>Charges</h4><div class="fx-scroll"><table><thead><tr><th>Term</th><th>Item</th><th class="num">Billed</th><th class="num">Paid</th><th class="num">Owing</th><th></th></tr></thead><tbody>' +
+            (a.lines.length ? a.lines.map(l => '<tr><td>' + esc(l.item.term) + '</td><td>' + esc(l.item.name) + ' <small style="color:#64748B">' + esc(l.item.category) + '</small></td><td class="num">' + esc(fmt(l.item.amount_cents)) + '</td><td class="num">' + esc(fmt(l.paid)) + '</td><td class="num">' + esc(fmt(l.remaining)) + '</td><td>' + badge(lineStatus(l)) + '</td></tr>').join('') : '<tr><td colspan="6" class="fx-empty">No fees set for this student and year.</td></tr>') +
+            (a.unallocated > 0 ? '<tr><td colspan="3"><small>Payments not tied to a specific item</small></td><td class="num">' + esc(fmt(a.unallocated)) + '</td><td colspan="2"></td></tr>' : '') + '</tbody></table></div>' +
             (optional.length ? '<h4>Optional fees</h4>' + optional.map(f => '<label class="fx-check"><input type="checkbox" data-action="toggle-assign" data-sid="' + esc(f.id) + '"' + (S.assignments.some(x => x.student_id === id && x.structure_id === f.id) ? ' checked' : '') + (can.structure() ? '' : ' disabled') + '> ' + esc(f.term) + ' · ' + esc(f.name) + ' — ' + esc(fmt(f.amount_cents)) + '</label>').join('') : '') +
-            '<h4>Payments</h4><div class="fx-scroll"><table><tbody>' + (all.length ? all.map(p => '<tr class="' + (p.status === 'reversed' ? 'rev' : '') + '"><td>' + esc(showDate(p.paid_on)) + '</td><td>' + esc(p.receipt_no) + '</td><td>' + esc(p.method) + '</td><td class="num">' + esc(fmt(p.amount_cents)) + '</td><td><button class="fx-btn fx-sm" data-action="receipt" data-id="' + esc(p.id) + '">Receipt</button></td></tr>').join('') : '<tr><td class="fx-empty">No payments yet.</td></tr>') + '</tbody></table></div>' +
+            '<h4>Payments</h4><div class="fx-scroll"><table><tbody>' + (all.length ? all.map(p => '<tr class="' + (p.status === 'reversed' ? 'rev' : '') + '"><td>' + esc(showDate(p.paid_on)) + '</td><td>' + esc(p.receipt_no) + '</td><td>' + esc(p.method) + '</td><td><small>' + esc(allocText(p)) + '</small></td><td class="num">' + esc(fmt(p.amount_cents)) + '</td><td><button class="fx-btn fx-sm" data-action="receipt" data-id="' + esc(p.id) + '">Receipt</button></td></tr>').join('') : '<tr><td class="fx-empty">No payments yet.</td></tr>') + '</tbody></table></div>' +
             '<div class="fx-act" style="justify-content:flex-end;margin-top:12px"><button class="fx-btn" data-action="close-modal">Close</button>' +
             (can.record() && a.balance > 0 ? '<button class="fx-btn pri" data-action="open-pay" data-id="' + esc(id) + '">Record payment</button>' : '') +
             '<button class="fx-btn" data-action="print-statement" data-id="' + esc(id) + '">Print statement</button></div>', true);
@@ -632,13 +729,13 @@
         downloadCSV('fee-accounts-' + S.year + '-' + S.term.replace(' ', '') + '.csv', rows);
     }
     function exportPayments() {
-        const rows = [['Receipt', 'Date paid', 'Student ID', 'Student', 'Class', 'Term', 'Year', 'Method', 'Reference', 'Amount', 'Status', 'Recorded by', 'Reversal reason']];
-        S.payments.filter(p => p.year === S.year).forEach(p => rows.push([p.receipt_no, p.paid_on, p.student_id, p.student_name, p.class, p.term, p.year, p.method, p.reference || '', money2(p.amount_cents), p.status, p.recorded_by, p.reversal_reason || '']));
+        const rows = [['Receipt', 'Date paid', 'Student ID', 'Student', 'Class', 'Term', 'Year', 'Method', 'Reference', 'Amount', 'Applied to', 'Status', 'Recorded by', 'Reversal reason']];
+        S.payments.filter(p => p.year === S.year).forEach(p => rows.push([p.receipt_no, p.paid_on, p.student_id, p.student_name, p.class, p.term, p.year, p.method, p.reference || '', money2(p.amount_cents), allocText(p), p.status, p.recorded_by, p.reversal_reason || '']));
         downloadCSV('fee-payments-' + S.year + '.csv', rows);
     }
     function exportArrears() {
-        const rows = [['Student ID', 'Name', 'Class', 'Parent', 'Phone', 'Balance']];
-        S.arrears.forEach(x => rows.push([x.r.stu.id, x.r.stu.name, x.r.stu.class, x.r.stu.parentName || '', x.r.stu.phone || '', money2(x.r.balance)]));
+        const rows = [['Student ID', 'Name', 'Class', 'Parent', 'Phone', 'Balance', 'Owing for']];
+        S.arrears.forEach(x => rows.push([x.r.stu.id, x.r.stu.name, x.r.stu.class, x.r.stu.parentName || '', x.r.stu.phone || '', money2(x.r.balance), x.owing]));
         downloadCSV('fee-arrears-' + S.year + '.csv', rows);
     }
 
@@ -654,6 +751,8 @@
             case 'set-term': S.term = CFG.terms.includes(t.value) ? t.value : S.term; render(); break;
             case 'refresh': await loadAll(); render(); notify('Refreshed.', 'success'); break;
             case 'open-pay': openPay(id); break;
+            case 'pay-full': fillFull(t); updatePayTotal(); break;
+            case 'pay-all': S.modal.querySelectorAll('[data-action="pay-full"]').forEach(fillFull); updatePayTotal(); break;
             case 'submit-pay': await submitPay(); break;
             case 'open-reverse': openReverse(id); break;
             case 'submit-reverse': await submitReverse(); break;
@@ -704,6 +803,7 @@
         ['click', 'change'].forEach(ev => { S.root.addEventListener(ev, onAction); S.modal.addEventListener(ev, onAction); });
         S.root.addEventListener('input', onFilter);
         S.root.addEventListener('change', onFilter);
+        S.modal.addEventListener('input', e => { if (e.target.classList && e.target.classList.contains('fx-pay-in')) updatePayTotal(); });
         S.modal.addEventListener('mousedown', e => { if (e.target === S.modal) closeModal(); });
         document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.modal.classList.contains('open')) closeModal(); });
 
