@@ -17,6 +17,17 @@ function showNotification(msg, type) {
     setTimeout(() => el.remove(), 3500);
 }
 
+// Escapes any text before it is placed into innerHTML, so a name, subject
+// or room containing <script> or quotes can never run as code (XSS).
+function escapeHtml(value) {
+    return String(value === null || value === undefined ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // ---------- Supabase client (same project as the admin dashboard) ----------
 const SUPABASE_URL = 'https://tnrxsrjzdshjuhvebkck.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRucnhzcmp6ZHNoanVodmVia2NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA1NTcsImV4cCI6MjA5Mjc5NjU1N30.4b6CAXXs21aIJKm1qi9bOuIE5zDfJiEQze9hoxSJ7ig';
@@ -37,7 +48,7 @@ if (!supabaseClient) {
 // below, only from an actual "Delete" click.
 const SYNC_KEYS = ['students', 'attendance', 'studentTimetables', 'announcements'];
 // Tables this page only reads (owned/written by the admin dashboard).
-const LOAD_ONLY_KEYS = ['teachers', 'classes'];
+const LOAD_ONLY_KEYS = ['teachers', 'classes', 'timetables'];
 
 function mapRowForSupabase(table, item) {
     switch (table) {
@@ -98,6 +109,8 @@ function mapRowFromSupabase(table, row) {
             return { id: row.id, name: row.name, department: row.department, email: row.email, phone: row.phone, status: row.status, username: row.username, class: row.class };
         case 'classes':
             return { id: row.id, name: row.name, formLevel: row.form_level, teacher: row.teacher, teacherId: row.teacher_id || '', room: row.room };
+        case 'timetables':
+            return { id: row.id, class: row.class, day: row.day, start: row.start_time, end: row.end_time, teacher: row.teacher, teacherId: row.teacher_id || '', subject: row.subject, room: row.room || '' };
         case 'attendance':
             return { id: row.id, studentId: row.student_id, class: row.class, date: row.date, status: row.status, teacher: row.teacher, note: row.note };
         case 'studentTimetables':
@@ -241,6 +254,9 @@ async function loadFromBackend() {
     // ===========================
     // TIMETABLE — SECTION 1
     // Admin's timetable (READ ONLY)
+    // Loaded from Supabase "timetables" (see LOAD_ONLY_KEYS). Periods are
+    // matched to this teacher by teacher ID first (survives renames), then
+    // by class ownership, then by name/username for older records.
     // ===========================
     function renderAdminTimetable(){
         const tbody = document.getElementById('ttAdminBody');
@@ -260,8 +276,14 @@ async function loadFromBackend() {
             .filter(c => c.teacher === user.name || c.teacher === user.username)
             .map(c => c.name);
 
+        const teachersList = getData('teachers') || [];
+        const me = (Array.isArray(teachersList) ? teachersList : []).find(t =>
+            t.name === user.name || t.username === user.name || t.username === user.username
+        );
+
         const mine = allTimetables.filter(t =>
             myClasses.includes(t.class) ||
+            (me && t.teacherId === me.id) ||
             t.teacher === user.name ||
             t.teacher === user.username
         );
@@ -278,12 +300,12 @@ async function loadFromBackend() {
         mine.forEach(r => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td>${r.day || '-'}</td>
-                <td>${r.subject || '-'}</td>
-                <td>${r.class || '-'}</td>
-                <td>${r.start || '-'}</td>
-                <td>${r.end || '-'}</td>
-                <td>${r.room || '-'}</td>`;
+                <td>${escapeHtml(r.day) || '-'}</td>
+                <td>${escapeHtml(r.subject) || '-'}</td>
+                <td>${escapeHtml(r.class) || '-'}</td>
+                <td>${escapeHtml(r.start) || '-'}</td>
+                <td>${escapeHtml(r.end) || '-'}</td>
+                <td>${escapeHtml(r.room) || '-'}</td>`;
             tbody.appendChild(tr);
         });
 
