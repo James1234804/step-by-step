@@ -55,8 +55,7 @@
                     <span class="icon" data-lucide="wallet"></span>
                     <span class="label">Fees &amp; Finance</span>
                 </a>
-                <!-- Payroll & HR now opens its own secured standalone page -->
-                <a href="payroll.html" class="menu-item" onclick="window.location.href='payroll.html'; return false;">
+                <a href="#payroll" class="menu-item" data-menu="payroll" data-section="payroll">
                     <span class="icon" data-lucide="banknote"></span>
                     <span class="label">Payroll &amp; HR</span>
                 </a>
@@ -851,7 +850,7 @@
 
             </section>
 
-            <!-- ===== PAYROLL & HR SECTION (placeholder, now unused: the sidebar opens payroll.html) ===== -->
+            <!-- ===== PAYROLL & HR SECTION (filled in by payroll.js) ===== -->
             <section id="payroll-section" class="content-section">
                 <div class="section-header">
                     <h1>Payroll &amp; HR</h1>
@@ -957,6 +956,6 @@
  <script src="timetable.js"></script>
   <script src="fees.js"></script>
  <script src="records.js"></script>
-  <script src="payroll.js"></script>
+ <script src="payroll.js"></script>
 </body>
 </html>
