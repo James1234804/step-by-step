@@ -65,6 +65,7 @@ root.innerHTML = `
   <div id="pr-t-staff" class="pr-h">
     <div class="card pr-pad" id="pr-addp"><h3 style="margin:0 0 .8rem;font-size:1rem">Add staff member</h3>
       <div class="pr-grid">
+        <div><label>Link to a teacher already in the system</label><select id="pr-tsel"><option value="">Not a teacher (type details)</option></select></div>
         <div><label>Full name</label><input id="pr-name"></div>
         <div><label>National ID</label><input id="pr-nid"></div>
         <div><label>Position</label><input id="pr-pos"></div>
@@ -189,7 +190,7 @@ async function loadAll() {
   if (lv.error) toast("Leave data is not set up yet. Run payroll_update_1.sql in Supabase."); leaves = lv.data || [];
   c.data.forEach(x => cfg[x.key] = x.value);
   flag("pr-cfgwarn", !(Array.isArray(cfg.paye_bands) && cfg.paye_bands.length));
-  fillSettings(); fillLeaveStaff(); renderStaff(); renderLeave(); await renderDash();
+  fillSettings(); fillLeaveStaff(); fillTeacherSelect(); renderStaff(); renderLeave(); await renderDash();
 }
 async function renderDash() {
   const act = staff.filter(s => s.status !== "left");
@@ -219,7 +220,7 @@ function renderStaff() {
       const d = x.contract_end ? (new Date(x.contract_end) - Date.now()) / 864e5 : null;
       const alert = d !== null && d <= 60 ? ` <span class="pr-tag draft">${d < 0 ? "expired" : "ends soon"}</span>` : "";
       const st = canEdit ? `<select data-sid="${x.id}">${["active","on_leave","left"].map(o => `<option ${o === x.status ? "selected" : ""}>${o}</option>`).join("")}</select>` : `<span class="pr-tag">${esc(x.status)}</span>`;
-      return `<tr><td>${esc(x.full_name)}</td><td>${esc(x.position)}</td><td>${esc(x.department)}</td><td>${esc(x.date_joined)}</td><td>${esc(x.contract_end)}${alert}</td><td class="pr-n">${money(x.basic_salary)}</td><td class="pr-n">${money(x.allowances)}</td><td>${st}</td></tr>`;
+      return `<tr><td>${esc(x.full_name)}${x.teacher_id ? ' <span class="pr-tag">teacher</span>' : ""}</td><td>${esc(x.position)}</td><td>${esc(x.department)}</td><td>${esc(x.date_joined)}</td><td>${esc(x.contract_end)}${alert}</td><td class="pr-n">${money(x.basic_salary)}</td><td class="pr-n">${money(x.allowances)}</td><td>${st}</td></tr>`;
     }).join("")
   }</tbody></table>` : `<p class="subtitle">${staff.length ? "No staff match your search." : "No staff yet. Use the form above to add the first member."}</p>`;
 }
@@ -235,9 +236,10 @@ g("pr-add").onclick = async () => {
   if (!name || !(g("pr-basic").value > 0)) return toast("Enter a name and a basic salary.");
   const {error} = await sb.from("staff").insert({full_name: name, national_id: g("pr-nid").value.trim() || null,
     position: g("pr-pos").value.trim(), department: g("pr-dep").value, date_joined: g("pr-join").value || null, contract_end: g("pr-cend").value || null,
-    basic_salary: +g("pr-basic").value, allowances: +g("pr-allow").value || 0, other_deductions: +g("pr-oth").value || 0});
+    teacher_id: g("pr-tsel").value || null, basic_salary: +g("pr-basic").value, allowances: +g("pr-allow").value || 0, other_deductions: +g("pr-oth").value || 0});
   if (error) return toast("Could not save. You may not have permission.");
   ["pr-name","pr-nid","pr-pos","pr-join","pr-cend","pr-basic"].forEach(i => g(i).value = "");
+  g("pr-tsel").value = ""; g("pr-name").readOnly = false;
   toast("Staff member saved"); loadAll();
 };
 
@@ -355,6 +357,26 @@ g("pr-saveset").onclick = async () => {
   const res = await Promise.all(rows.map(([key, value]) => sb.from("payroll_settings").update({value}).eq("key", key)));
   if (res.some(r => r.error)) return toast("Could not save. Only the head can change rates.");
   toast("Rates saved"); loadAll();
+};
+
+// ---- link staff to teachers already in the school system ----
+let teacherList = [];
+async function getTeachers() {
+  try { const t = new Function("return typeof teachers!=='undefined'?teachers:null")(); if (Array.isArray(t) && t.length) return t; } catch (e) {}
+  try { const base = findClient(); if (base) { const r = await base.from("teachers").select("*"); if (r.data) return r.data; } } catch (e) {}
+  return [];
+}
+async function fillTeacherSelect() {
+  const all = await getTeachers(), linked = new Set(staff.map(x => String(x.teacher_id)));
+  teacherList = all.filter(t => t && t.name && String(t.status || "").toLowerCase() !== "inactive" && !linked.has(String(t.id)));
+  g("pr-tsel").innerHTML = `<option value="">Not a teacher (type details)</option>` +
+    teacherList.map(t => `<option value="${esc(t.id)}">${esc(t.name)}${t.department ? " (" + esc(t.department) + ")" : ""}</option>`).join("");
+}
+g("pr-tsel").onchange = () => {
+  const t = teacherList.find(v => String(v.id) === g("pr-tsel").value);
+  g("pr-name").readOnly = !!t;
+  if (!t) return;
+  g("pr-name").value = t.name; g("pr-pos").value = "Teacher" + (t.department ? " – " + t.department : ""); g("pr-dep").value = "Teaching";
 };
 
 // ---- tabs ----
