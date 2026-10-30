@@ -48,6 +48,8 @@ root.innerHTML = `
 <div id="pr-denied" class="card pr-box pr-h">
   <h2 style="margin:0 0 .3rem;font-size:1.1rem">Access denied</h2>
   <p class="subtitle">Your account has no Payroll &amp; HR role. Ask the headmaster to grant access.</p>
+  <p id="pr-dmsg" class="subtitle" style="font-size:.85rem"></p>
+  <button id="pr-dout" class="btn btn-secondary">Sign out</button>
 </div>
 
 <div id="pr-app" class="pr-h">
@@ -115,8 +117,11 @@ function connect() {
 async function start() {
   const {data: {session}} = await sb.auth.getSession();
   if (!session) return view("login");
-  const {data} = await sb.from("user_roles").select("role").eq("user_id", session.user.id).maybeSingle();
-  if (!data) return view("denied");
+  const {data, error} = await sb.from("user_roles").select("role").eq("user_id", session.user.id).maybeSingle();
+  if (!data) {
+    g("pr-dmsg").textContent = "Signed in as " + session.user.email + ". " + (error ? "Database message: " + error.message : "No role is saved for this account yet.");
+    return view("denied");
+  }
   role = data.role;
   g("pr-who").textContent = session.user.email + " · " + role;
   flag("pr-out", true); flag("pr-addp", ["head","hr"].includes(role));
@@ -136,6 +141,7 @@ async function signOut() {
   g("pr-who").textContent = ""; flag("pr-out", false); view("login");
 }
 g("pr-out").onclick = signOut;
+g("pr-dout").onclick = signOut;
 function resetIdle() { clearTimeout(idle); idle = setTimeout(signOut, 15 * 60 * 1000); } // 15 min idle sign-out
 ["click","keydown","mousemove"].forEach(e => document.addEventListener(e, () => role && resetIdle()));
 
