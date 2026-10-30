@@ -55,7 +55,8 @@
                     <span class="icon" data-lucide="wallet"></span>
                     <span class="label">Fees &amp; Finance</span>
                 </a>
-                <a href="#payroll" class="menu-item" data-menu="payroll" data-section="payroll">
+                <!-- Payroll & HR now opens its own secured standalone page -->
+                <a href="payroll.html" class="menu-item" onclick="window.location.href='payroll.html'; return false;">
                     <span class="icon" data-lucide="banknote"></span>
                     <span class="label">Payroll &amp; HR</span>
                 </a>
@@ -508,14 +509,10 @@
                 </div>
             </section>
 
-            <!-- Student Modal -->
             <!-- Teacher Modal (single source of truth for creating/editing teachers,
                  used both from the Teachers page's "+ Add Teacher" button and from
                  the Class form's "+ New Teacher" shortcut). Lives at the top level,
-                 outside any single content-section, so it works from every page —
-                 it was previously nested inside the Classes section, which meant
-                 it was hidden along with that section whenever another page was
-                 active, and "+ Add Teacher" appeared to do nothing from Teachers. -->
+                 outside any single content-section, so it works from every page. -->
             <div id="teacherModal" class="modal" aria-hidden="true">
                 <div class="modal-content">
                     <div class="modal-header">
@@ -547,6 +544,7 @@
                 </div>
             </div>
 
+            <!-- Student Modal -->
             <div id="studentModal" class="modal" aria-hidden="true">
                 <div class="modal-content">
                     <div class="modal-header">
@@ -665,9 +663,7 @@
                 </div>
 
                 <!-- Teacher Stats Cards. Total/Active/Inactive are plain, read-only
-                     stats — no click behavior. Only Morning Session and Afternoon
-                     Session are interactive: clicking one opens the detail view
-                     listing exactly who's in that group, which class, and what time. -->
+                     stats. Only Morning Session and Afternoon Session are interactive. -->
                 <div class="stats-grid" id="teacherStatsGrid">
                     <div class="stat-card">
                         <div class="stat-icon tone-blue"><span data-lucide="graduation-cap"></span></div>
@@ -855,7 +851,7 @@
 
             </section>
 
-            <!-- ===== PAYROLL & HR SECTION (placeholder) ===== -->
+            <!-- ===== PAYROLL & HR SECTION (placeholder, now unused: the sidebar opens payroll.html) ===== -->
             <section id="payroll-section" class="content-section">
                 <div class="section-header">
                     <h1>Payroll &amp; HR</h1>
