@@ -1,4 +1,4 @@
-/* payroll.js — Payroll & HR section. Loaded by index.html (like fees.js).
+ /* payroll.js — Payroll & HR section. Loaded by index.html (like fees.js).
    Draws itself inside <section id="payroll-section">. Needs payroll_setup.sql run once in Supabase. */
 (function () {
 "use strict";
