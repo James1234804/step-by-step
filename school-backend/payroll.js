@@ -299,7 +299,7 @@ function slip(l) {
   if (!w) return toast("Allow pop-ups to print payslips.");
   const row = (a, b) => `<tr><td>${a}</td><td style="text-align:right">${money(b)}</td></tr>`;
   w.document.write(`<!doctype html><title>Payslip</title><style>body{font:14px system-ui,sans-serif;max-width:560px;margin:30px auto;color:#16202a}h1{font-size:20px;margin:0}table{width:100%;border-collapse:collapse;margin:12px 0}td{padding:6px 4px;border-bottom:1px solid #ddd}.t td{font-weight:700;border-top:2px solid #333}small{color:#666}</style>
-<h1>Shallom High School</h1><small>Payslip for ${esc(curRun.month.slice(0, 7))}${curRun.status === "draft" ? " (DRAFT, not yet approved)" : ""}</small>
+<h1>${esc(window.SchoolSettings ? SchoolSettings.get("school_name", "Shallom High School") : "Shallom High School")}</h1><small>Payslip for ${esc(curRun.month.slice(0, 7))}${curRun.status === "draft" ? " (DRAFT, not yet approved)" : ""}</small>
 <p><b>${esc(x.full_name)}</b><br>${esc(x.position || "")} · ${esc(x.department || "")}${x.national_id ? "<br>ID: " + esc(x.national_id) : ""}</p>
 <table><tr><td colspan="2"><b>Earnings</b></td></tr>${row("Basic salary", l.basic)}${row("Allowances", l.allowances)}<tr class="t"><td>Gross pay</td><td style="text-align:right">${money(l.gross)}</td></tr></table>
 <table><tr><td colspan="2"><b>Deductions</b></td></tr>${row("PAYE", l.paye)}${row("AIDS levy", l.aids_levy)}${row("NSSA", l.nssa)}${row("Other deductions", l.other_deductions)}<tr class="t"><td>Net pay</td><td style="text-align:right">${money(l.net)}</td></tr></table>
