@@ -7,6 +7,7 @@ if (!root) return;
 const g = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const money = n => Number(n || 0).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const alertDays = () => +(window.SchoolSettings ? SchoolSettings.get("contract_alert_days", 60) : 60) || 60;
 let leaves = [], runLines = [], bands = [];
 let sb = null, role = null, cfg = {}, staff = [], runs = [], curRun = null, idle;
 
@@ -194,7 +195,7 @@ async function loadAll() {
 }
 async function renderDash() {
   const act = staff.filter(s => s.status !== "left");
-  const soon = act.filter(s => s.contract_end && (new Date(s.contract_end) - Date.now()) / 864e5 <= 60).length;
+  const soon = act.filter(s => s.contract_end && (new Date(s.contract_end) - Date.now()) / 864e5 <= alertDays()).length;
   const teach = act.filter(s => s.department === "Teaching").length;
   const {data: lines} = await sb.from("payroll_lines").select("run_id,gross,net,employer_nssa,employer_zimdef");
   const by = {};
@@ -205,7 +206,7 @@ async function renderDash() {
     ["On leave", act.filter(s => s.status === "on_leave").length], ["Latest gross payroll", money(L.gross)],
     ["Latest deductions", money(L.gross - L.net)], ["Latest net pay", money(L.net)],
     ["Latest run status", last ? `<span class="pr-tag ${last.status}">${last.status}</span>` : "None yet"],
-    ["Contracts ending in 60 days", soon], ["Leave awaiting approval", leaves.filter(x => x.status === "pending").length]];
+    ["Contracts ending soon", soon], ["Leave awaiting approval", leaves.filter(x => x.status === "pending").length]];
   g("pr-cards").innerHTML = cards.map(c => `<div class="stat-card"><div class="stat-info"><h3 class="stat-title">${c[0]}</h3><p class="stat-value">${c[1]}</p></div></div>`).join("");
   const rows = runs.slice(0, 12).map(r => `<tr><td>${esc(r.month.slice(0,7))}</td><td><span class="pr-tag ${r.status}">${r.status}</span></td><td class="pr-n">${money(by[r.id]?.gross)}</td><td class="pr-n">${money(by[r.id]?.cost)}</td></tr>`).join("");
   g("pr-trend").innerHTML = rows ? `<table class="table"><thead><tr><th>Month</th><th>Status</th><th class="pr-n">Gross</th><th class="pr-n">True cost (with employer contributions)</th></tr></thead><tbody>${rows}</tbody></table>` : `<p class="subtitle">No payroll runs yet. Add staff, then calculate your first month.</p>`;
@@ -218,7 +219,7 @@ function renderStaff() {
   g("pr-stafftbl").innerHTML = list.length ? `<table class="table"><thead><tr><th>Name</th><th>Position</th><th>Department</th><th>Joined</th><th>Contract ends</th><th class="pr-n">Basic</th><th class="pr-n">Allowances</th><th>Status</th></tr></thead><tbody>${
     list.map(x => {
       const d = x.contract_end ? (new Date(x.contract_end) - Date.now()) / 864e5 : null;
-      const alert = d !== null && d <= 60 ? ` <span class="pr-tag draft">${d < 0 ? "expired" : "ends soon"}</span>` : "";
+      const alert = d !== null && d <= alertDays() ? ` <span class="pr-tag draft">${d < 0 ? "expired" : "ends soon"}</span>` : "";
       const st = canEdit ? `<select data-sid="${x.id}">${["active","on_leave","left"].map(o => `<option ${o === x.status ? "selected" : ""}>${o}</option>`).join("")}</select>` : `<span class="pr-tag">${esc(x.status)}</span>`;
       return `<tr><td>${esc(x.full_name)}${x.teacher_id ? ' <span class="pr-tag">teacher</span>' : ""}</td><td>${esc(x.position)}</td><td>${esc(x.department)}</td><td>${esc(x.date_joined)}</td><td>${esc(x.contract_end)}${alert}</td><td class="pr-n">${money(x.basic_salary)}</td><td class="pr-n">${money(x.allowances)}</td><td>${st}</td></tr>`;
     }).join("")
