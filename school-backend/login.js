@@ -102,7 +102,7 @@
         );
 
         if (teacher) {
-          saveData('currentUser', { id: teacher.id, name: teacher.name || teacher.username, role: 'teacher' });
+          saveData('currentUser', { id: teacher.id, name: teacher.name || teacher.username, username: teacher.username, role: 'teacher' });
           window.location.href = 'teacher.html';
         } else {
           alert('Invalid teacher credentials');
