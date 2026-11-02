@@ -1,695 +1,280 @@
- // ============================================================
-// teacher.js — Teacher Dashboard
-// Supabase-backed. This file no longer talks to the old Render
-// backend (shallom-high-elite.onrender.com) — that server is dead,
-// and every fetch() call to it was silently failing, meaning
-// attendance, timetables, announcements and student credentials
-// created from this page never actually reached the server. Only
-// Send Work (file uploads) still depends on the old backend and is
-// known to be broken — that's a separate fix, not done here.
-// ============================================================
+  /* =========================================================================
+   teacher-core.js  —  loads FIRST on the teacher page.
+   Provides: session check, Supabase connection, teacher record lookup,
+   sidebar + layout, section registry, and shared helpers (window.Teacher).
+   Section files (teacher-timetable.js, teacher-attendance.js, ...) load AFTER
+   this file and call Teacher.register({...}).
+   ========================================================================= */
+(function () {
+  'use strict';
 
-function showNotification(msg, type) {
-    const el = document.createElement('div');
-    el.className = `notification ${type || 'info'}`;
+  var SUPABASE_URL = 'https://tnrxsrjzdshjuhvebkck.supabase.co';
+  // Public "anon" key (safe to be in the page by design). NEVER put the service_role key here.
+  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRucnhzcmp6ZHNoanVodmVia2NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA1NTcsImV4cCI6MjA5Mjc5NjU1N30.4b6CAXXs21aIJKm1qi9bOuIE5zDfJiEQze9hoxSJ7ig';
+
+  /* ---------- helpers ---------- */
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function today() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  var DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  function dayName(dateStr) { return DAYS[new Date((dateStr || today()) + 'T00:00:00').getDay()]; }
+  function norm(s) { return String(s == null ? '' : s).trim().toLowerCase(); }
+
+  function readUser() {
+    try { return JSON.parse(localStorage.getItem('currentUser')); } catch (e) { return null; }
+  }
+
+  /* ---------- toast + confirm (replace alert / confirm) ---------- */
+  function toast(msg, type) {
+    var wrap = document.getElementById('tcToasts');
+    if (!wrap) return;
+    var el = document.createElement('div');
+    el.className = 'tc-toast ' + (type || 'info');
     el.textContent = msg;
-    document.body.appendChild(el);
-    setTimeout(() => el.remove(), 3500);
-}
+    wrap.appendChild(el);
+    setTimeout(function () { el.classList.add('out'); setTimeout(function () { el.remove(); }, 300); }, type === 'error' ? 6000 : 3500);
+  }
 
-// Escapes any text before it is placed into innerHTML, so a name, subject
-// or room containing <script> or quotes can never run as code (XSS).
-function escapeHtml(value) {
-    return String(value === null || value === undefined ? '' : value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
+  function confirmBox(message, okLabel) {
+    return new Promise(function (resolve) {
+      var back = document.createElement('div');
+      back.className = 'tc-modal-back';
+      back.innerHTML = '<div class="tc-modal" role="dialog" aria-modal="true"><p></p><div class="tc-modal-actions">' +
+        '<button class="btn secondary" data-r="0">Cancel</button><button class="btn primary" data-r="1"></button></div></div>';
+      back.querySelector('p').textContent = message;
+      back.querySelector('[data-r="1"]').textContent = okLabel || 'Confirm';
+      back.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-r]');
+        if (!b && e.target !== back) return;
+        back.remove();
+        resolve(b ? b.dataset.r === '1' : false);
+      });
+      document.body.appendChild(back);
+    });
+  }
 
-// ---------- Supabase client (same project as the admin dashboard) ----------
-const SUPABASE_URL = 'https://tnrxsrjzdshjuhvebkck.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRucnhzcmp6ZHNoanVodmVia2NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA1NTcsImV4cCI6MjA5Mjc5NjU1N30.4b6CAXXs21aIJKm1qi9bOuIE5zDfJiEQze9hoxSJ7ig';
+  /* ---------- styles for the new shell (builds on teacher.css) ---------- */
+  function injectStyles() {
+    var s = document.createElement('style');
+    s.textContent = [
+      '.tc-menu{display:none;background:none;border:1.5px solid var(--border);border-radius:8px;width:38px;height:38px;font-size:1.1rem;cursor:pointer;color:var(--navy)}',
+      '#tcToasts{position:fixed;top:76px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:340px}',
+      '.tc-toast{padding:12px 18px;border-radius:10px;font-size:.85rem;font-weight:700;color:#fff;box-shadow:var(--shadow-lg);animation:slideIn .25s ease;transition:opacity .3s}',
+      '.tc-toast.success{background:#16a34a}.tc-toast.error{background:#dc2626}.tc-toast.info{background:var(--navy);border-left:4px solid var(--orange)}.tc-toast.out{opacity:0}',
+      '.tc-modal-back{position:fixed;inset:0;background:rgba(15,37,87,.45);display:flex;align-items:center;justify-content:center;z-index:9998;padding:16px}',
+      '.tc-modal{background:#fff;border-radius:14px;padding:1.5rem;max-width:380px;width:100%;box-shadow:var(--shadow-lg)}',
+      '.tc-modal p{font-size:.95rem;line-height:1.5;margin-bottom:1.25rem}',
+      '.tc-modal-actions{display:flex;gap:.6rem;justify-content:flex-end}',
+      '.tc-center{max-width:560px;margin:12vh auto;padding:0 20px}',
+      '.tc-loading{padding:3rem;text-align:center;color:var(--text-muted)}',
+      '.tc-list{list-style:none}.tc-list li{padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:12px}',
+      '.tc-list li:last-child{border-bottom:none}',
+      '@media (max-width:768px){',
+      ' .tc-menu{display:inline-flex;align-items:center;justify-content:center}',
+      ' .teacher-nav{padding:0 1rem}.nav-title,.nav-badge,.nav-user{display:none}',
+      ' .sidebar{display:flex!important;position:fixed;left:0;top:64px;bottom:0;height:auto;z-index:150;width:260px;transform:translateX(-105%);transition:transform .2s;box-shadow:var(--shadow-lg)}',
+      ' .sidebar.tc-open{transform:none}',
+      ' .main{padding:0!important}',
+      '}',
+      '@media print{.teacher-nav,.sidebar,#tcToasts,.no-print{display:none!important}.main{padding:0}.card{box-shadow:none;margin:0 0 12px}}'
+    ].join('\n');
+    document.head.appendChild(s);
+  }
 
-const supabaseClient = (window.supabase && window.supabase.createClient)
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-    : null;
+  /* ---------- shell ---------- */
+  function buildShell(root) {
+    root.innerHTML =
+      '<nav class="teacher-nav">' +
+        '<div class="nav-left">' +
+          '<button class="tc-menu" id="tcMenu" aria-label="Menu">☰</button>' +
+          '<img src="shallom-logo.jpeg" class="nav-logo" alt="">' +
+          '<h1 class="nav-title">Step by Step <span>Academy</span></h1>' +
+          '<span class="nav-badge">Teacher</span>' +
+        '</div>' +
+        '<div class="nav-right">' +
+          '<div class="nav-user"><span class="nav-user-name" id="tcName"></span><span class="nav-user-class" id="tcClassInfo"></span></div>' +
+          '<button class="btn btn-danger" id="tcLogout">Logout</button>' +
+        '</div>' +
+      '</nav>' +
+      '<div class="layout">' +
+        '<aside class="sidebar" id="tcSidebar">' +
+          '<div class="sidebar-section"><div class="sidebar-label">Menu</div><div id="tcNav"></div></div>' +
+          '<div class="sidebar-footer"><button class="btn-logout" id="tcLogout2">🚪 Logout</button></div>' +
+        '</aside>' +
+        '<main class="main" id="tcMain"></main>' +
+      '</div>' +
+      '<div id="tcToasts" aria-live="polite"></div>';
 
-if (!supabaseClient) {
-    console.warn('Supabase client failed to initialize — check that the supabase-js <script> tag is in teacher.html and loaded before teacher.js.');
-}
+    document.getElementById('tcLogout').addEventListener('click', T.logout);
+    document.getElementById('tcLogout2').addEventListener('click', T.logout);
+    document.getElementById('tcMenu').addEventListener('click', function () {
+      document.getElementById('tcSidebar').classList.toggle('tc-open');
+    });
+  }
 
-// Tables this page is allowed to sync with a safe full-array UPSERT.
-// Same hard rule as the admin dashboard's school.js: upsert only ever
-// adds/updates rows present locally. It can NEVER delete anything just
-// because the local array looks empty — that was the exact bug that
-// wiped real student data before. Deletions go through deleteRowFromBackend
-// below, only from an actual "Delete" click.
-const SYNC_KEYS = ['students', 'attendance', 'studentTimetables', 'announcements'];
-// Tables this page only reads (owned/written by the admin dashboard).
-const LOAD_ONLY_KEYS = ['teachers', 'classes', 'timetables'];
+  /* ---------- section registry + routing ---------- */
+  var sections = [];
+  var booted = false;
+  var current = null;
 
-function mapRowForSupabase(table, item) {
-    switch (table) {
-        case 'students':
-            return {
-                id: item.id,
-                name: item.name,
-                class: item.class || '',
-                gender: item.gender || '',
-                password: item.password || '',
-                status: item.status || 'Active',
-                date_added: item.dateAdded || '',
-                parent_name: item.parentName || '',
-                phone: item.phone || '',
-                enrollment_year: item.enrollmentYear || null
-            };
-        case 'attendance':
-            return {
-                id: item.id,
-                student_id: item.studentId,
-                class: item.class || '',
-                date: item.date || '',
-                status: item.status || '',
-                teacher: item.teacher || item.createdBy || '',
-                note: item.note || ''
-            };
-        case 'studentTimetables':
-            return {
-                id: item.id,
-                class: item.class || '',
-                day: item.day || '',
-                subject: item.subject || '',
-                teacher: item.teacher || '',
-                start_time: item.start || '',
-                end_time: item.end || '',
-                room: item.room || ''
-            };
-        case 'announcements':
-            return {
-                id: item.id,
-                title: item.title || '',
-                body: item.body || '',
-                urgent: !!item.urgent,
-                class_name: item.className || '',
-                teacher: item.teacher || '',
-                date: item.date || ''
-            };
-        default:
-            return item;
-    }
-}
+  function register(sec) {
+    if (!sec || !sec.id || typeof sec.render !== 'function') { console.warn('Teacher.register: need {id, title, render}'); return; }
+    sec.order = sec.order == null ? 50 : sec.order;
+    var i = sections.findIndex(function (x) { return x.id === sec.id; });
+    if (i >= 0) sections[i] = sec; else sections.push(sec);
+    if (booted) { buildNav(); }
+  }
 
-function mapRowFromSupabase(table, row) {
-    switch (table) {
-        case 'students':
-            return { id: row.id, name: row.name, class: row.class, gender: row.gender, password: row.password, status: row.status || 'Active', dateAdded: row.date_added || '', parentName: row.parent_name || '', phone: row.phone || '', enrollmentYear: row.enrollment_year || '' };
-        case 'teachers':
-            return { id: row.id, name: row.name, department: row.department, email: row.email, phone: row.phone, status: row.status, username: row.username, class: row.class };
-        case 'classes':
-            return { id: row.id, name: row.name, formLevel: row.form_level, teacher: row.teacher, teacherId: row.teacher_id || '', room: row.room };
-        case 'timetables':
-            return { id: row.id, class: row.class, day: row.day, start: row.start_time, end: row.end_time, teacher: row.teacher, teacherId: row.teacher_id || '', subject: row.subject, room: row.room || '' };
-        case 'attendance':
-            return { id: row.id, studentId: row.student_id, class: row.class, date: row.date, status: row.status, teacher: row.teacher, note: row.note };
-        case 'studentTimetables':
-            return { id: row.id, class: row.class, day: row.day, subject: row.subject, teacher: row.teacher, start: row.start_time, end: row.end_time, room: row.room };
-        case 'announcements':
-            return { id: row.id, title: row.title, body: row.body, urgent: !!row.urgent, className: row.class_name, teacher: row.teacher, date: row.date };
-        default:
-            return row;
-    }
-}
+  function buildNav() {
+    sections.sort(function (a, b) { return a.order - b.order; });
+    var nav = document.getElementById('tcNav');
+    if (!nav) return;
+    nav.innerHTML = '';
+    sections.forEach(function (s) {
+      var b = document.createElement('button');
+      b.className = 'nav-item' + (s.id === current ? ' active' : '');
+      b.dataset.id = s.id;
+      b.innerHTML = '<span class="nav-icon"></span><span class="nav-text"></span>';
+      b.querySelector('.nav-icon').textContent = s.icon || '•';
+      b.querySelector('.nav-text').textContent = s.title || s.id;
+      b.addEventListener('click', function () { go(s.id); });
+      nav.appendChild(b);
+    });
+  }
 
-// Supabase table names differ slightly from the localStorage keys for two
-// of these (studentTimetables -> student_timetables); this maps that.
-function backendTableName(key) {
-    if (key === 'studentTimetables') return 'student_timetables';
-    return key;
-}
-
-function getData(key) {
+  async function go(id) {
+    var sec = sections.find(function (s) { return s.id === id; }) || sections[0];
+    if (!sec) return;
+    current = sec.id;
+    if (location.hash !== '#' + sec.id) history.replaceState(null, '', '#' + sec.id);
+    document.querySelectorAll('#tcNav .nav-item').forEach(function (n) { n.classList.toggle('active', n.dataset.id === sec.id); });
+    document.getElementById('tcSidebar').classList.remove('tc-open');
+    var main = document.getElementById('tcMain');
+    main.innerHTML = '<div class="tc-loading">Loading…</div>';
+    var holder = document.createElement('div');
+    holder.className = 'page active';
+    holder.id = 'page-' + sec.id;
     try {
-        const data = localStorage.getItem(key);
-        return data ? JSON.parse(data) : null;
+      await sec.render(holder, T);
+      main.innerHTML = '';
+      main.appendChild(holder);
     } catch (e) {
-        console.error('Error reading:', e);
-        return null;
+      console.error('Section "' + sec.id + '" failed:', e);
+      main.innerHTML = '<div class="card" style="margin-top:28px"><div class="card-body"><strong>Something went wrong loading this page.</strong>' +
+        '<p class="muted-text" style="margin-top:8px">' + esc(e && e.message ? e.message : e) + '</p></div></div>';
     }
-}
+  }
 
-function saveData(key, data) {
+  /* ---------- data: who is this teacher, and which classes are theirs ---------- */
+  async function loadTeacher(user) {
+    var res = await T.sb.from('teachers').select('id,name,username,department,status');
+    if (res.error) throw new Error('Could not read the teachers table: ' + res.error.message);
+    var list = res.data || [];
+    var hit = list.find(function (t) { return user.id != null && String(t.id) === String(user.id); });
+    if (hit) return { row: hit, by: 'login ID' };
+    hit = list.find(function (t) { return user.username && norm(t.username) === norm(user.username); });
+    if (hit) return { row: hit, by: 'username' };
+    hit = list.find(function (t) { return user.name && norm(t.name) === norm(user.name); });
+    if (hit) return { row: hit, by: 'name (weakest match)' };
+    return null;
+  }
+
+  async function reloadClasses() {
+    var res = await T.sb.from('classes').select('*');
+    if (res.error) throw new Error('Could not read the classes table: ' + res.error.message);
+    var me = T.teacher;
+    T.classes = (res.data || []).filter(function (c) {
+      if (c.teacher_id) return String(c.teacher_id) === String(me.id);
+      return norm(c.teacher) === norm(me.name);   // older rows with no teacher_id
+    }).sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+    var info = document.getElementById('tcClassInfo');
+    if (info) info.textContent = T.classes.map(function (c) { return c.name; }).join(', ');
+    return T.classes;
+  }
+
+  /* ---------- built-in Overview (replaced later by teacher-today.js, same id 'home') ---------- */
+  function renderHome(el) {
+    var first = (T.teacher.name || 'Teacher').split(' ')[0];
+    var dateLabel = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    var cls = T.classes.length
+      ? '<ul class="tc-list">' + T.classes.map(function (c) {
+          return '<li><strong>' + esc(c.name) + '</strong><span class="muted-text">' + esc(c.room ? 'Room ' + c.room : '') + '</span></li>';
+        }).join('') + '</ul>'
+      : '<p class="muted-text">No classes are assigned to you yet. Ask the headmaster to assign one on the main dashboard.</p>';
+    el.innerHTML =
+      '<div class="page-header"><h2>Welcome, <span>' + esc(first) + '</span></h2><p>' + esc(dateLabel) + '</p></div>' +
+      '<div class="card"><div class="card-header"><h3>Your classes</h3></div><div class="card-body">' + cls + '</div></div>' +
+      '<div class="card"><div class="card-header"><h3>Connection check</h3></div><div class="card-body">' +
+        '<p class="muted-text">Connected to the school database. Your login is linked to teacher record <strong>' + esc(T.teacher.name) +
+        '</strong> (ID ' + esc(T.teacher.id) + '), matched by ' + esc(T.matchedBy) + '.</p></div></div>';
+  }
+
+  /* ---------- public API ---------- */
+  var T = {
+    sb: null, user: null, teacher: null, classes: [], matchedBy: '',
+    esc: esc, today: today, dayName: dayName, norm: norm,
+    toast: toast, confirm: confirmBox,
+    register: register, go: go, reloadClasses: reloadClasses,
+    logout: function () { try { localStorage.removeItem('currentUser'); } catch (e) {} location.href = 'login.html'; }
+  };
+  window.Teacher = T;
+
+  function fatal(root, title, detail) {
+    root.innerHTML = '<div class="tc-center"><div class="card" style="margin:0"><div class="card-body"><h3 style="margin-bottom:8px">' + esc(title) +
+      '</h3><p class="muted-text">' + detail + '</p><div class="form-actions"><button class="btn" id="tcBackLogin">Back to login</button></div></div></div></div>';
+    document.getElementById('tcBackLogin').addEventListener('click', T.logout);
+  }
+
+  async function boot() {
+    var root = document.getElementById('tcRoot') || document.body;
+    injectStyles();
+
+    var user = readUser();
+    if (!user || user.role !== 'teacher') { location.href = 'login.html'; return; }
+    T.user = user;
+
+    if (!(window.supabase && window.supabase.createClient)) {
+      fatal(root, 'Cannot reach the database library', 'The Supabase script did not load. Check your internet connection and refresh.');
+      return;
+    }
+    T.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    root.innerHTML = '<div class="tc-loading">Loading your dashboard…</div>';
+
     try {
-        localStorage.setItem(key, JSON.stringify(data));
-        if (SYNC_KEYS.includes(key)) syncToBackend(key, data);
-        return true;
-    } catch (e) {
-        console.error('Error saving:', e);
-        return false;
-    }
-}
-
-// Safe upsert-only sync — see the big comment at the top of this file.
-async function syncToBackend(key, data) {
-    if (!supabaseClient) { console.warn(`Supabase client missing — could not sync "${key}"`); return; }
-    if (!Array.isArray(data) || data.length === 0) {
-        console.log(`(sync) "${key}": local array is empty — nothing upserted, remote data left untouched`);
+      var found = await loadTeacher(user);
+      if (!found) {
+        fatal(root, 'Your login is not linked to a teacher record',
+          'You are signed in as <strong>' + esc(user.name) + '</strong> (ID ' + esc(user.id) + '), but no teacher with that ID or name exists. ' +
+          'Ask the headmaster to check your teacher profile on the main dashboard.');
         return;
-    }
-    try {
-        const table = backendTableName(key);
-        const rows = data.map(item => mapRowForSupabase(key, item));
-        const { error } = await supabaseClient.from(table).upsert(rows, { onConflict: 'id' });
-        if (error) {
-            console.warn(`✗ Supabase upsert FAILED for "${key}":`, error.message);
-            showNotification(`Warning: "${key}" may not have saved to the server.`, 'error');
-        } else {
-            console.log(`✓ Synced ${rows.length} record(s) to Supabase "${table}" table (upsert)`);
-        }
-    } catch (e) {
-        console.warn(`✗ Supabase sync threw an error for "${key}":`, e);
-    }
-}
-
-// The ONLY way a row is removed remotely — a specific, deliberate delete.
-async function deleteRowFromBackend(key, id) {
-    if (!supabaseClient || !id) return;
-    const table = backendTableName(key);
-    try {
-        const { error } = await supabaseClient.from(table).delete().eq('id', id);
-        if (error) console.warn(`✗ Supabase delete FAILED for "${table}" id=${id}:`, error.message);
-        else console.log(`✓ Deleted "${table}" id=${id} from Supabase`);
-    } catch (e) {
-        console.warn(`✗ Supabase delete threw an error for "${table}":`, e);
-    }
-}
-
-async function loadFromBackend() {
-    if (!supabaseClient) return;
-    const allKeys = [...SYNC_KEYS, ...LOAD_ONLY_KEYS];
-    for (const key of allKeys) {
-        try {
-            const table = backendTableName(key);
-            const { data, error } = await supabaseClient.from(table).select('*');
-            if (error) { console.warn(`Could not load ${key} from Supabase:`, error.message); continue; }
-            if (data) {
-                const mapped = data.map(row => mapRowFromSupabase(key, row));
-                localStorage.setItem(key, JSON.stringify(mapped));
-                console.log(`✓ Loaded ${key} from Supabase (${mapped.length} records)`);
-            }
-        } catch (e) {
-            console.warn(`Error loading ${key} from Supabase:`, e);
-        }
-    }
-}
-
-(function(){
-  function ensureAuth(){
-    const cur = getData('currentUser');
-    if(!cur){ window.location.href='login.html'; return null }
-    if(cur.role !== 'teacher' && cur.role !== 'headmaster'){ window.location.href='teacher.html'; return null; }
-    return cur;
-  }
-
-  function addActivity(icon,text){
-    let acts = getData('activities')||[]; if(!Array.isArray(acts)) acts=[];
-    acts.unshift({id:String(Date.now()),icon,text,time:new Date().toLocaleString()});
-    if(acts.length>12) acts=acts.slice(0,12);
-    saveData('activities',acts);
-  }
-
-  document.addEventListener('DOMContentLoaded', async ()=>{
-    await loadFromBackend();
-    const user = ensureAuth(); if(!user) return;
-    document.getElementById('teacherName').textContent = user.name || user.username || 'Teacher';
-
-    try {
-      const classInfoEl = document.getElementById('teacherClassInfo');
-      if(classInfoEl){
-        const classes = getData('classes')||[];
-        const myClasses = (Array.isArray(classes)?classes:[]).filter(c=>c.teacher===user.name||c.teacher===user.username);
-        if(myClasses.length===0){ classInfoEl.textContent=''; }
-        else {
-          const classNames = myClasses.map(c=>c.name).join(', ');
-          const students = getData('students')||[];
-          const firstCount = (Array.isArray(students)?students.filter(s=>s.class===myClasses[0].name).length:0);
-          classInfoEl.textContent = `${classNames} — ${firstCount} students`;
-        }
       }
-    } catch(e){}
+      T.teacher = found.row;
+      T.matchedBy = found.by;
 
-    document.getElementById('btnTeacherBack').addEventListener('click',()=>{ window.location.href='teacher.html' });
-    document.getElementById('btnTeacherLogout').addEventListener('click',()=>{ localStorage.removeItem('currentUser'); window.location.href='login.html' });
-
-    document.querySelectorAll('.tab').forEach(btn=>{
-      btn.addEventListener('click',()=>{
-        document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-        document.querySelectorAll('.tab-section').forEach(s=>s.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById(btn.dataset.tab).classList.add('active');
-      });
-    });
-
-    // ===========================
-    // TIMETABLE — SECTION 1
-    // Admin's timetable (READ ONLY)
-    // Loaded from Supabase "timetables" (see LOAD_ONLY_KEYS). Periods are
-    // matched to this teacher by teacher ID first (survives renames), then
-    // by class ownership, then by name/username for older records.
-    // ===========================
-    function renderAdminTimetable(){
-        const tbody = document.getElementById('ttAdminBody');
-        const countEl = document.getElementById('ttAdminCount');
-        if(!tbody) return;
-        tbody.innerHTML = '';
-
-        const allTimetables = getData('timetables') || [];
-        if(!Array.isArray(allTimetables) || allTimetables.length === 0){
-            tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No schedule assigned by admin yet.</td></tr>';
-            if(countEl) countEl.textContent = '';
-            return;
-        }
-
-        const classes = getData('classes') || [];
-        const myClasses = (Array.isArray(classes)?classes:[])
-            .filter(c => c.teacher === user.name || c.teacher === user.username)
-            .map(c => c.name);
-
-        const teachersList = getData('teachers') || [];
-        const me = (Array.isArray(teachersList) ? teachersList : []).find(t =>
-            t.name === user.name || t.username === user.name || t.username === user.username
-        );
-
-        const mine = allTimetables.filter(t =>
-            myClasses.includes(t.class) ||
-            (me && t.teacherId === me.id) ||
-            t.teacher === user.name ||
-            t.teacher === user.username
-        );
-
-        if(mine.length === 0){
-            tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No schedule found for your class. Contact the admin.</td></tr>';
-            if(countEl) countEl.textContent = '';
-            return;
-        }
-
-        const dayOrder = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-        mine.sort((a,b) => dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day) || (a.start||'').localeCompare(b.start||''));
-
-        mine.forEach(r => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${escapeHtml(r.day) || '-'}</td>
-                <td>${escapeHtml(r.subject) || '-'}</td>
-                <td>${escapeHtml(r.class) || '-'}</td>
-                <td>${escapeHtml(r.start) || '-'}</td>
-                <td>${escapeHtml(r.end) || '-'}</td>
-                <td>${escapeHtml(r.room) || '-'}</td>`;
-            tbody.appendChild(tr);
-        });
-
-        if(countEl) countEl.textContent = `${mine.length} period${mine.length !== 1 ? 's' : ''}`;
+      buildShell(root);
+      document.getElementById('tcName').textContent = T.teacher.name || user.name || 'Teacher';
+      await reloadClasses();
+    } catch (e) {
+      console.error(e);
+      fatal(root, 'Could not load your dashboard', esc(e.message || e));
+      return;
     }
 
-    renderAdminTimetable();
-
-    // ===========================
-    // TIMETABLE — SECTION 2
-    // Student timetable (teacher creates for students)
-    // ===========================
-    function renderStudentTimetable(){
-        const tbody = document.getElementById('ttBody');
-        const countEl = document.getElementById('ttClassCount');
-        if(!tbody) return;
-        tbody.innerHTML = '';
-
-        const tts = getData('studentTimetables') || [];
-        const classes = getData('classes') || [];
-        const myClass = classes.find(c => c.teacher === user.name || c.teacher === user.username);
-
-        if(!myClass){
-            tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No class assigned to you yet.</td></tr>';
-            return;
-        }
-
-        const mine = (Array.isArray(tts) ? tts : []).filter(x => x.class === myClass.name);
-
-        if(mine.length === 0){
-            tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No student timetable entries yet. Add one above.</td></tr>';
-            if(countEl) countEl.textContent = '';
-            return;
-        }
-
-        const dayOrder = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-        mine.sort((a,b) => dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day) || a.start.localeCompare(b.start));
-
-        mine.forEach(r => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${r.day}</td>
-                <td>${r.subject}</td>
-                <td>${r.teacher}</td>
-                <td>${r.start}</td>
-                <td>${r.end}</td>
-                <td>${r.room || '-'}</td>
-                <td>
-                    <button class="btn-small btn-warning" onclick="editTimetableEntry('${r.id}')">Edit</button>
-                    <button class="btn-small btn-danger" onclick="deleteTimetableEntry('${r.id}')">Delete</button>
-                </td>`;
-            tbody.appendChild(tr);
-        });
-
-        if(countEl) countEl.textContent = `${mine.length} period${mine.length !== 1 ? 's' : ''}`;
+    // Built-in Overview, unless a section file (e.g. teacher-today.js) already registered 'home'.
+    if (!sections.some(function (s) { return s.id === 'home'; })) {
+      register({ id: 'home', title: 'Overview', icon: '🏠', order: 0, render: renderHome });
     }
+    booted = true;
+    buildNav();
+    var want = (location.hash || '').replace('#', '');
+    go(sections.some(function (s) { return s.id === want; }) ? want : sections[0].id);
+  }
 
-    function addStudentTimetableEntry(entry) {
-        let timetables = getData('studentTimetables') || [];
-        if(!Array.isArray(timetables)) timetables = [];
-        timetables.push({ id: 'STT' + Date.now(), ...entry });
-        if(saveData('studentTimetables', timetables)){
-            showNotification('Entry added to student timetable!', 'success');
-            renderStudentTimetable();
-        }
-    }
-
-    window.editTimetableEntry = function(id) {
-        let timetables = getData('studentTimetables') || [];
-        const idx = timetables.findIndex(t => t.id === id);
-        if(idx === -1) return showNotification('Entry not found', 'error');
-        const current = timetables[idx];
-        const day = prompt('Day:', current.day); if(!day) return;
-        const subject = prompt('Subject:', current.subject); if(!subject) return;
-        const teacher = prompt('Teacher:', current.teacher); if(!teacher) return;
-        const start = prompt('Start time (e.g. 08:00):', current.start); if(!start) return;
-        const end = prompt('End time (e.g. 08:45):', current.end); if(!end) return;
-        const room = prompt('Room number:', current.room || '');
-        timetables[idx] = { ...current, day, subject, teacher, start, end, room };
-        if(saveData('studentTimetables', timetables)){
-            renderStudentTimetable();
-            showNotification('Entry updated!', 'success');
-        }
-    };
-
-    window.deleteTimetableEntry = function(id) {
-        if(!confirm('Delete this entry?')) return;
-        let timetables = getData('studentTimetables') || [];
-        timetables = timetables.filter(t => t.id !== id);
-        if(saveData('studentTimetables', timetables)){
-            deleteRowFromBackend('studentTimetables', id);
-            renderStudentTimetable();
-        }
-    };
-
-    const ttFormEl = document.getElementById('ttForm');
-    if(ttFormEl){
-        ttFormEl.addEventListener('submit', e => {
-            e.preventDefault();
-            const classes = getData('classes') || [];
-            const myClass = classes.find(c => c.teacher === user.name || c.teacher === user.username);
-            if(!myClass) return showNotification('No class assigned to you', 'error');
-            const day = document.getElementById('ttDay').value;
-            const subject = document.getElementById('ttSubject').value.trim();
-            const teacher = document.getElementById('ttTeacher').value.trim() || user.name;
-            const start = document.getElementById('ttStart').value;
-            const end = document.getElementById('ttEnd').value;
-            const room = document.getElementById('ttRoom').value.trim();
-            if(!day || !subject || !start || !end) return showNotification('Fill all required fields', 'error');
-            addStudentTimetableEntry({ class: myClass.name, day, subject, teacher, start, end, room });
-            ttFormEl.reset();
-        });
-    }
-
-    renderStudentTimetable();
-
-    // ===========================
-    // ATTENDANCE (marking students)
-    // ===========================
-    function loadAttendance(){ const a=getData('attendance')||[]; return Array.isArray(a)?a:[]; }
-
-    function renderAttendance(dayFilter='all'){
-      const tbody=document.getElementById('attBody'); if(!tbody) return;
-      tbody.innerHTML='';
-      let atts=loadAttendance().filter(x=>x.teacher===user.name||x.createdBy===user.username);
-      if(dayFilter!=='all') atts=atts.filter(a=>getDayName(a.date)===dayFilter);
-      if(atts.length===0){ tbody.innerHTML=`<tr class="empty-row"><td colspan="5">No attendance records for ${dayFilter==='all'?'any day':dayFilter}.</td></tr>`; return; }
-      atts.forEach(a=>{
-        const tr=document.createElement('tr');
-        tr.innerHTML=`<td>${getDayName(a.date)}, ${a.date}</td><td>${a.studentName||a.studentId}</td><td>${a.class}</td><td><span class="att-status-badge ${a.status==='present'?'att-status-present':'att-status-absent'}">${a.status.toUpperCase()}</span></td><td>${a.teacher}</td>`;
-        tbody.appendChild(tr);
-      });
-    }
-
-    function populateAttendanceClassSelect(){
-      const sel=document.getElementById('attClassSelect'); if(!sel) return;
-      const classes=getData('classes')||[];
-      const myClasses=(Array.isArray(classes)?classes:[]).filter(c=>c.teacher===user.name||c.teacher===user.username);
-      sel.innerHTML='<option value="">Select Class</option>';
-      myClasses.forEach(c=>{ const opt=document.createElement('option'); opt.value=c.name; opt.textContent=c.name; sel.appendChild(opt); });
-    }
-    populateAttendanceClassSelect();
-
-    function getDayName(dateStr){ const d=new Date(dateStr+'T00:00:00'); return ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getDay()]; }
-
-    let currentDayFilter='all';
-    let attToggleState={};
-
-    document.getElementById('attLoadBtn').addEventListener('click',e=>{
-      e.preventDefault();
-      const date=document.getElementById('attDate').value;
-      const cls=document.getElementById('attClassSelect').value;
-      if(!date||!cls){ showNotification('Please select date and class', 'error'); return; }
-      const students=getData('students')||[];
-      const clsStudents=(Array.isArray(students)?students:[]).filter(s=>s.class===cls);
-      if(clsStudents.length===0){ showNotification('No students in this class', 'error'); return; }
-      attToggleState={};
-      const listEl=document.getElementById('attStudentMarkingList'); listEl.innerHTML='';
-      clsStudents.forEach(s=>{
-        const div=document.createElement('div'); div.className='att-item';
-        const chk=document.createElement('input'); chk.type='checkbox'; chk.id='att_'+s.id; chk.checked=true; attToggleState[s.id]=true;
-        const label=document.createElement('label'); label.htmlFor='att_'+s.id; label.textContent=s.name+' ('+s.id+')';
-        const badge=document.createElement('span'); badge.className='att-status-badge att-status-present'; badge.textContent='Present'; badge.id='status_'+s.id;
-        chk.addEventListener('change',()=>{ attToggleState[s.id]=chk.checked; const b=document.getElementById('status_'+s.id); if(chk.checked){b.textContent='Present';b.className='att-status-badge att-status-present';}else{b.textContent='Absent';b.className='att-status-badge att-status-absent';} });
-        div.appendChild(chk); div.appendChild(label); div.appendChild(badge); listEl.appendChild(div);
-      });
-      document.getElementById('attMarkingInfo').textContent=`${cls} — ${getDayName(date)}, ${date} (${clsStudents.length} students)`;
-      document.getElementById('attMarkingCard').style.display='block';
-    });
-
-    document.getElementById('attSaveBtn').addEventListener('click',()=>{
-      const date=document.getElementById('attDate').value;
-      const cls=document.getElementById('attClassSelect').value;
-      if(!date||!cls){ showNotification('Select date and class', 'error'); return; }
-      const students=getData('students')||[];
-      const clsStudents=(Array.isArray(students)?students:[]).filter(s=>s.class===cls);
-      let atts=loadAttendance(); if(!Array.isArray(atts)) atts=[];
-      clsStudents.forEach(s=>{
-        const status=(attToggleState[s.id]===undefined?true:attToggleState[s.id])?'present':'absent';
-        const existingIdx=atts.findIndex(a=>a.studentId===s.id&&a.date===date&&a.class===cls);
-        const rec={id:'A'+Date.now()+'_'+s.id,studentId:s.id,studentName:s.name,class:cls,date,status,teacher:user.name,createdBy:user.username,time:new Date().toLocaleString()};
-        if(existingIdx!==-1){atts[existingIdx]=rec;}else{atts.push(rec);}
-      });
-      try{
-        if(saveData('attendance',atts)){
-          const presentCount=Object.values(attToggleState).filter(v=>v).length;
-          let notifications=getData('attendanceNotifications')||[]; if(!Array.isArray(notifications)) notifications=[];
-          notifications.unshift({id:'N'+String(notifications.length+1).padStart(5,'0'),type:'attendance',teacher:user.name||user.username,class:cls,presentCount,totalCount:clsStudents.length,date,timestamp:new Date().toLocaleString(),message:`${user.name||user.username} marked attendance for ${cls}: ${presentCount}/${clsStudents.length} students present`,read:false});
-          if(notifications.length>50) notifications=notifications.slice(0,50);
-          localStorage.setItem('attendanceNotifications', JSON.stringify(notifications));
-          showNotification('Attendance saved successfully', 'success');
-          addActivity('📋',`Marked attendance for ${cls} on ${date}`);
-          renderAttendance(currentDayFilter);
-          document.getElementById('attMarkingCard').style.display='none';
-          document.getElementById('attForm').reset();
-          attToggleState={};
-        }else{ showNotification('Error: Could not save attendance data', 'error'); }
-      }catch(err){ console.error('Attendance save error:',err); showNotification('Error saving attendance: '+err.message, 'error'); }
-    });
-
-    document.getElementById('attCancelBtn').addEventListener('click',()=>{ document.getElementById('attMarkingCard').style.display='none'; attToggleState={}; });
-
-    document.querySelectorAll('.day-btn').forEach(btn=>{
-      btn.addEventListener('click',()=>{
-        document.querySelectorAll('.day-btn').forEach(b=>b.classList.remove('active-day'));
-        btn.classList.add('active-day');
-        currentDayFilter=btn.dataset.day; renderAttendance(currentDayFilter);
-      });
-    });
-    const allDaysBtn=document.querySelector('.day-btn[data-day="all"]');
-    if(allDaysBtn) allDaysBtn.classList.add('active-day');
-    renderAttendance();
-
-    // ===========================
-    // MY STUDENTS + CREDENTIALS
-    // ===========================
-    // A student's login is their existing student ID (the same id used
-    // everywhere else — classes, fees, attendance) plus a password, set on
-    // the student record itself. There is no separate "login ID" anymore —
-    // the old version let a teacher type an arbitrary one, which could
-    // drift out of sync with the real student record used by the rest of
-    // the system. This only ever sets/resets the password.
-    function renderTeacherStudents(){
-      try{
-        const listEl=document.getElementById('teacherStudentsList');
-        const selectEl=document.getElementById('studentSelect');
-        if(!listEl) return;
-        listEl.innerHTML='';
-        if(selectEl) selectEl.innerHTML='<option value="">Select a student...</option>';
-        const classes=getData('classes')||[];
-        const myClasses=(Array.isArray(classes)?classes:[]).filter(c=>c.teacher===user.name||c.teacher===user.username);
-        if(myClasses.length===0){ listEl.innerHTML='<li style="color:#666;">No classes assigned to you.</li>'; return; }
-        const students=getData('students')||[];
-        const myClassNames=myClasses.map(c=>c.name);
-        const myStudents=(Array.isArray(students)?students:[]).filter(s=>myClassNames.includes(s.class));
-        myClasses.forEach(cls=>{
-          const header=document.createElement('li'); header.style.fontWeight='700'; header.style.marginTop='0.5rem'; header.textContent=cls.name; listEl.appendChild(header);
-          const clsStudents=myStudents.filter(s=>s.class===cls.name);
-          if(clsStudents.length===0){
-            const li=document.createElement('li'); li.style.color='#666'; li.textContent='No students in this class.'; listEl.appendChild(li);
-          } else {
-            clsStudents.forEach(s=>{
-              const li=document.createElement('li'); li.style.padding='4px 0';
-              const hasLogin = !!s.password;
-              li.textContent=`${s.name} (${s.class}) — ID: ${s.id} ${hasLogin?'✅ Has login':'❌ No password set'}`;
-              listEl.appendChild(li);
-            });
-          }
-        });
-        if(selectEl){
-          myStudents.forEach(s=>{
-            const opt=document.createElement('option');
-            opt.value=s.id;
-            opt.textContent=`${s.name} (${s.class}) — ID: ${s.id}`;
-            selectEl.appendChild(opt);
-          });
-        }
-      }catch(e){ console.warn('Could not render teacher students',e); }
-    }
-    renderTeacherStudents();
-
-    const createStudentForm=document.getElementById('createStudentForm');
-    if(createStudentForm){
-      createStudentForm.addEventListener('submit',(e)=>{
-        e.preventDefault();
-        const studentDbId=document.getElementById('studentSelect').value;
-        const password=document.getElementById('studentPassword').value;
-        if(!studentDbId) return showNotification('Please select a student from the dropdown', 'error');
-        if(!password) return showNotification('Please choose a password', 'error');
-
-        let students = getData('students') || [];
-        const idx = students.findIndex(s => s.id === studentDbId);
-        if(idx === -1) return showNotification('Student not found', 'error');
-
-        students[idx] = { ...students[idx], password };
-        if(saveData('students', students)){
-          showNotification(`Login saved for ${students[idx].name}. ID: ${students[idx].id}`, 'success');
-          addActivity('🔑', `Set a password for ${students[idx].name}`);
-          e.target.reset();
-          renderTeacherStudents();
-        } else {
-          showNotification('Could not save — please try again', 'error');
-        }
-      });
-    }
-
-    // ===========================
-    // SEND WORK — STILL BROKEN
-    // ===========================
-    // This still depends on the dead Render backend for file upload and
-    // submission tracking (/api/teacher/send-work, /api/sync,
-    // /api/teacher/sent-work). It is NOT fixed in this update — the file
-    // upload side needs Supabase Storage set up, which is a separate job.
-    // Left as-is on purpose rather than silently removed.
-    const sendWorkForm = document.getElementById('sendWorkForm');
-    if(sendWorkForm){
-      sendWorkForm.addEventListener('submit', (e)=>{
-        e.preventDefault();
-        showNotification('Send Work is not connected yet — this feature is being rebuilt. Nothing was sent.', 'error');
-      });
-    }
-    const sentWorkContainer = document.getElementById('sentWorkList');
-    if (sentWorkContainer) {
-      sentWorkContainer.innerHTML = '<p class="muted-text">Send Work isn\'t connected yet — coming soon.</p>';
-    }
-
-    // ===========================
-    // ANNOUNCEMENTS
-    // ===========================
-    function loadAnnouncements() {
-        const announcements = getData('announcements') || [];
-        const myAnnouncements = announcements.filter(a =>
-            a.teacher === user.name || a.teacher === user.username
-        );
-        renderAnnouncements(myAnnouncements);
-    }
-
-    function renderAnnouncements(list) {
-        const container = document.getElementById('annList');
-        if (!container) return;
-        if (list.length === 0) {
-            container.innerHTML = '<p class="muted-text">No announcements posted yet.</p>';
-            return;
-        }
-        container.innerHTML = '';
-        list.sort((a, b) => new Date(b.date) - new Date(a.date));
-        list.forEach(a => {
-            const div = document.createElement('div');
-            div.className = `ann-card${a.urgent ? ' urgent' : ''}`;
-            div.innerHTML = `
-                <div class="ann-card-header">
-                    <div>
-                        ${a.urgent ? '<span class="badge badge-urgent" style="margin-bottom:6px;display:inline-block;">URGENT</span>' : ''}
-                        <h4>${a.title}</h4>
-                        <p>${a.body}</p>
-                        <div class="ann-card-meta">Posted: ${new Date(a.date).toLocaleString()} — To: ${a.className}</div>
-                    </div>
-                    <button class="btn-small btn-danger" onclick="deleteAnnouncement('${a.id}')">Delete</button>
-                </div>`;
-            container.appendChild(div);
-        });
-    }
-
-    window.deleteAnnouncement = function(id) {
-        if (!confirm('Delete this announcement?')) return;
-        let announcements = getData('announcements') || [];
-        announcements = announcements.filter(a => a.id !== id);
-        if (saveData('announcements', announcements)) {
-            deleteRowFromBackend('announcements', id);
-            loadAnnouncements();
-        }
-    };
-
-    const annFormEl = document.getElementById('annForm');
-    if (annFormEl) {
-        annFormEl.addEventListener('submit', e => {
-            e.preventDefault();
-            const classes = getData('classes') || [];
-            const myClass = classes.find(c =>
-                c.teacher === user.name || c.teacher === user.username
-            );
-            if (!myClass) return showNotification('No class assigned to you', 'error');
-            const title = document.getElementById('annTitle').value.trim();
-            const body = document.getElementById('annBody').value.trim();
-            const urgent = document.getElementById('annUrgent').checked;
-            if (!title || !body) return showNotification('Please fill all fields', 'error');
-            let announcements = getData('announcements') || [];
-            if (!Array.isArray(announcements)) announcements = [];
-            announcements.push({
-                id: 'ANN' + Date.now(),
-                title, body, urgent,
-                className: myClass.name,
-                teacher: user.name || user.username,
-                date: new Date().toISOString()
-            });
-            if (saveData('announcements', announcements)) {
-                loadAnnouncements();
-                annFormEl.reset();
-                showNotification('Announcement posted!', 'success');
-            }
-        });
-    }
-
-    loadAnnouncements();
-
-  }); // end DOMContentLoaded
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
 })();
