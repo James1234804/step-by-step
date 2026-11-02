@@ -1,4 +1,4 @@
-  /* =========================================================================
+ /* =========================================================================
    teacher-core.js  —  loads FIRST on the teacher page.
    Provides: session check, Supabase connection, teacher record lookup,
    sidebar + layout, section registry, and shared helpers (window.Teacher).
@@ -26,6 +26,15 @@
 
   function readUser() {
     try { return JSON.parse(localStorage.getItem('currentUser')); } catch (e) { return null; }
+  }
+
+  /* The main dashboard saves timetable teachers as free text (a name), with no
+     teacher_id. So "is this entry mine?" is answered by comparing names. */
+  function isMine(nameText) {
+    var me = T.teacher;
+    if (!me || !nameText) return false;
+    var n = norm(nameText);
+    return n === norm(me.name) || (me.username && n === norm(me.username));
   }
 
   /* ---------- toast + confirm (replace alert / confirm) ---------- */
@@ -169,17 +178,29 @@
     }
   }
 
-  /* ---------- data: who is this teacher, and which classes are theirs ---------- */
+  /* ---------- data: who is this teacher, and which classes are theirs ----------
+     The login stores {id, name, username, role}. The id is the LOGIN id (e.g. U001),
+     which differs from the teachers-table id (e.g. T001), so we match on username
+     first (stable), then on name (the headmaster can edit names). */
   async function loadTeacher(user) {
     var res = await T.sb.from('teachers').select('id,name,username,department,status');
     if (res.error) throw new Error('Could not read the teachers table: ' + res.error.message);
     var list = res.data || [];
-    var hit = list.find(function (t) { return user.id != null && String(t.id) === String(user.id); });
-    if (hit) return { row: hit, by: 'login ID' };
-    hit = list.find(function (t) { return user.username && norm(t.username) === norm(user.username); });
-    if (hit) return { row: hit, by: 'username' };
-    hit = list.find(function (t) { return user.name && norm(t.name) === norm(user.name); });
-    if (hit) return { row: hit, by: 'name (weakest match)' };
+    var hit;
+
+    hit = list.find(function (t) { return user.id != null && String(t.id) === String(user.id); });
+    if (hit) return { row: hit, by: 'teacher ID' };
+
+    if (user.username) {
+      hit = list.find(function (t) { return norm(t.username) === norm(user.username); }) ||
+            list.find(function (t) { return norm(t.name) === norm(user.username); });
+      if (hit) return { row: hit, by: 'username' };
+    }
+    if (user.name) {
+      hit = list.find(function (t) { return norm(t.name) === norm(user.name); }) ||
+            list.find(function (t) { return norm(t.username) === norm(user.name); });
+      if (hit) return { row: hit, by: 'name (weakest match)' };
+    }
     return null;
   }
 
@@ -189,7 +210,7 @@
     var me = T.teacher;
     T.classes = (res.data || []).filter(function (c) {
       if (c.teacher_id) return String(c.teacher_id) === String(me.id);
-      return norm(c.teacher) === norm(me.name);   // older rows with no teacher_id
+      return isMine(c.teacher);   // older rows with no teacher_id
     }).sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
     var info = document.getElementById('tcClassInfo');
     if (info) info.textContent = T.classes.map(function (c) { return c.name; }).join(', ');
@@ -216,7 +237,7 @@
   /* ---------- public API ---------- */
   var T = {
     sb: null, user: null, teacher: null, classes: [], matchedBy: '',
-    esc: esc, today: today, dayName: dayName, norm: norm,
+    esc: esc, today: today, dayName: dayName, norm: norm, isMine: isMine,
     toast: toast, confirm: confirmBox,
     register: register, go: go, reloadClasses: reloadClasses,
     logout: function () { try { localStorage.removeItem('currentUser'); } catch (e) {} location.href = 'login.html'; }
@@ -249,8 +270,8 @@
       var found = await loadTeacher(user);
       if (!found) {
         fatal(root, 'Your login is not linked to a teacher record',
-          'You are signed in as <strong>' + esc(user.name) + '</strong> (ID ' + esc(user.id) + '), but no teacher with that ID or name exists. ' +
-          'Ask the headmaster to check your teacher profile on the main dashboard.');
+          'You are signed in as <strong>' + esc(user.name) + '</strong>, but no teacher with that username or name exists. ' +
+          'Ask the headmaster to check your teacher profile on the main dashboard, then log in again.');
         return;
       }
       T.teacher = found.row;
